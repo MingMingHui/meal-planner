@@ -1,0 +1,107 @@
+/* ==========================================================================
+   Design Tokens — Health Meal Planning Agent
+   Palette inspired by a Malaysian market plate: forest greens, turmeric
+   spice, rice-paper cream. Two type roles: a warm serif for display,
+   a clean grotesk for body/UI, and a mono face for numbers & macros.
+   ========================================================================== */
+:root{
+  /* --- Color: light --- */
+  --bg:            #F7F5EF;
+  --bg-alt:        #EFE9DA;
+  --surface:       #FFFFFF;
+  --surface-glass: rgba(255,255,255,0.66);
+  --ink:           #1C231D;
+  --ink-soft:      #566056;
+  --ink-faint:     #8B9389;
+  --line:          #E1DACB;
+
+  --primary:       #2F5233;   /* deep forest green */
+  --primary-dark:  #1E3B24;
+  --primary-light: #6E9075;   /* sage */
+  --primary-tint:  #E4EBE1;
+
+  --accent:        #E08A1E;   /* turmeric / spice orange */
+  --accent-dark:   #B8690F;
+  --accent-tint:   #FBEAD2;
+
+  --berry:         #A6425A;   /* dragonfruit pink, secondary accent */
+  --berry-tint:    #F5E1E6;
+
+  --danger:        #C1443C;
+  --danger-tint:   #F7E2E0;
+  --warn:          #C08A1F;
+  --warn-tint:     #F6EBD3;
+  --success:       #2F7A4E;
+  --success-tint:  #E1EFE4;
+
+  --shadow-sm:  0 1px 2px rgba(28,35,29,0.06);
+  --shadow-md:  0 6px 20px rgba(28,35,29,0.08);
+  --shadow-lg:  0 16px 40px rgba(28,35,29,0.14);
+
+  --radius-sm:  10px;
+  --radius-md:  16px;
+  --radius-lg:  24px;
+  --radius-pill: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-body:    'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono:    'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+
+  --nav-w: 248px;
+  --header-h: 72px;
+  --tabbar-h: 64px;
+
+  --transition: 180ms cubic-bezier(.4,0,.2,1);
+
+  color-scheme: light;
+}
+
+[data-theme="dark"]{
+  --bg:            #10150F;
+  --bg-alt:        #171D14;
+  --surface:       #1B2318;
+  --surface-glass: rgba(27,35,24,0.72);
+  --ink:           #EFEEE6;
+  --ink-soft:      #B6BEAE;
+  --ink-faint:     #7C8577;
+  --line:          #2B3527;
+
+  --primary:       #7CB187;
+  --primary-dark:  #A9CCAE;
+  --primary-light: #6E9075;
+  --primary-tint:  #1F2A1E;
+
+  --accent:        #F0A23C;
+  --accent-dark:   #F6C177;
+  --accent-tint:   #2E2413;
+
+  --berry:         #E38FA1;
+  --berry-tint:    #2C1B20;
+
+  --danger:        #E5786F;
+  --danger-tint:   #2E1917;
+  --warn:          #E0B252;
+  --warn-tint:     #2C2413;
+  --success:       #7BC79B;
+  --success-tint:  #17271C;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.35);
+  --shadow-md: 0 6px 20px rgba(0,0,0,0.4);
+  --shadow-lg: 0 16px 40px rgba(0,0,0,0.5);
+
+  color-scheme: dark;
+}
+
+/* Reduced motion respect */
+@media (prefers-reduced-motion: reduce){
+  *{ animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+}

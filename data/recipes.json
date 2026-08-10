@@ -1,0 +1,338 @@
+{
+  "_comment": "Nutrition per serving is computed at runtime from data/ingredients.json (see js/nutrition.js:calcRecipeNutrition). ingredients[].qty is in the unit defined for that ingredient (g/ml/pc).",
+  "recipes": [
+    {
+      "id":"r_nasi_lemak_lite", "name":"Nasi Lemak (Lighter Version)", "malaysian":true,
+      "mealType":["breakfast","lunch"], "dietTags":["halal-friendly"], "goalTags":["maintenance","weight_loss"],
+      "allergens":["fish"], "difficulty":"Medium", "prepTime":15, "cookTime":25, "servings":2,
+      "ingredients":[
+        {"id":"rice_white","qty":150},{"id":"coconut_milk_light","qty":60},{"id":"anchovies_dried","qty":15},
+        {"id":"eggs","qty":2},{"id":"cucumber","qty":60},{"id":"sambal_belacan","qty":20},{"id":"peanuts","qty":10}
+      ],
+      "instructions":[
+        "Rinse rice, cook with light coconut milk instead of full-cream for a lower-fat lemak flavour.",
+        "Pan-toast dried anchovies without oil until crisp; set aside.",
+        "Hard-boil or fry eggs with minimal oil.",
+        "Slice cucumber and plate alongside rice.",
+        "Top with sambal belacan, anchovies, peanuts and egg."
+      ],
+      "healthBenefits":["Swapping full-cream coconut milk for light coconut milk cuts saturated fat while keeping the signature aroma.","Anchovies add calcium and omega-3s."],
+      "substitutions":[{"from":"rice_white","to":"rice_brown","note":"Use brown rice for more fibre and a lower glycaemic load."}]
+    },
+    {
+      "id":"r_chicken_rice_lean", "name":"Hainanese Chicken Rice (Lean)", "malaysian":true,
+      "mealType":["lunch","dinner"], "dietTags":["halal-friendly"], "goalTags":["muscle_gain","maintenance"],
+      "allergens":[], "difficulty":"Medium", "prepTime":15, "cookTime":35, "servings":2,
+      "ingredients":[
+        {"id":"chicken_breast","qty":250},{"id":"rice_white","qty":160},{"id":"ginger","qty":10},
+        {"id":"garlic","qty":10},{"id":"cucumber","qty":80},{"id":"soy_sauce_lowsodium","qty":15}
+      ],
+      "instructions":[
+        "Poach chicken breast gently with ginger and garlic until just cooked (avoid overcooking to keep it moist without added fat).",
+        "Cook rice in a little of the poaching stock instead of oil-fried rice for fewer calories.",
+        "Slice chicken, serve over rice with cucumber and a low-sodium soy dip."
+      ],
+      "healthBenefits":["Poaching instead of frying keeps this a lean, high-protein meal.","Low-sodium soy sauce reduces salt intake."],
+      "substitutions":[{"from":"chicken_breast","to":"tofu_firm","note":"Vegetarian swap: use firm tofu, poached the same way."}]
+    },
+    {
+      "id":"r_laksa_lite", "name":"Curry Laksa (Reduced-Oil)", "malaysian":true,
+      "mealType":["lunch","dinner"], "dietTags":["halal-friendly"], "goalTags":["maintenance"],
+      "allergens":["shellfish"], "difficulty":"Medium", "prepTime":15, "cookTime":25, "servings":2,
+      "ingredients":[
+        {"id":"bee_hoon","qty":140},{"id":"laksa_paste","qty":60},{"id":"coconut_milk_light","qty":150},
+        {"id":"prawns","qty":150},{"id":"tofu_firm","qty":100},{"id":"beansprouts","qty":60},{"id":"long_beans","qty":40}
+      ],
+      "instructions":[
+        "Fry laksa paste briefly in a non-stick pot with a splash of water instead of oil to cut fat.",
+        "Add light coconut milk and stock, simmer 10 minutes.",
+        "Add prawns and tofu, cook until prawns are pink.",
+        "Pour over blanched bee hoon, top with beansprouts and long beans."
+      ],
+      "healthBenefits":["Light coconut milk keeps the creamy taste with roughly half the saturated fat.","Prawns and tofu provide lean protein."],
+      "substitutions":[{"from":"prawns","to":"chicken_breast","note":"Use sliced chicken breast if shellfish allergy."}]
+    },
+    {
+      "id":"r_mee_goreng_healthy", "name":"Mee Goreng Mamak (Veg-Boosted)", "malaysian":true,
+      "mealType":["lunch","dinner"], "dietTags":["vegetarian-option","halal-friendly"], "goalTags":["maintenance"],
+      "allergens":["egg"], "difficulty":"Easy", "prepTime":10, "cookTime":15, "servings":2,
+      "ingredients":[
+        {"id":"mee_noodle","qty":200},{"id":"eggs","qty":2},{"id":"beansprouts","qty":80},
+        {"id":"cabbage","qty":60},{"id":"carrot","qty":40},{"id":"soy_sauce_lowsodium","qty":20},{"id":"tofu_firm","qty":80}
+      ],
+      "instructions":[
+        "Stir-fry noodles in a hot wok with minimal oil (use a non-stick pan and a light spray).",
+        "Push noodles aside, scramble egg in the same pan.",
+        "Add tofu, cabbage, carrot and beansprouts; toss with low-sodium soy sauce.",
+        "Combine everything and serve hot."
+      ],
+      "healthBenefits":["Extra cabbage and carrot roughly double the fibre and micronutrients versus a typical mamak portion."],
+      "substitutions":[{"from":"mee_noodle","to":"kolo_mee_noodle","note":"Any wheat noodle works similarly."}]
+    },
+    {
+      "id":"r_kolo_mee_lean", "name":"Kolo Mee (Lean Style)", "malaysian":true,
+      "mealType":["lunch","dinner"], "dietTags":["halal-friendly"], "goalTags":["maintenance"],
+      "allergens":["egg"], "difficulty":"Easy", "prepTime":10, "cookTime":15, "servings":2,
+      "ingredients":[
+        {"id":"kolo_mee_noodle","qty":200},{"id":"minced_beef","qty":120},{"id":"garlic","qty":8},
+        {"id":"soy_sauce_lowsodium","qty":15},{"id":"beansprouts","qty":50},{"id":"cabbage","qty":40}
+      ],
+      "instructions":[
+        "Blanch noodles and vegetables together, drain well.",
+        "Pan-fry lean minced beef with garlic until browned, no need for lard.",
+        "Toss noodles with a little soy sauce and top with the beef and vegetables."
+      ],
+      "healthBenefits":["Skipping the traditional lard-rendered oil cuts a significant amount of saturated fat."],
+      "substitutions":[{"from":"minced_beef","to":"tempeh","note":"Crumble and pan-fry tempeh for a vegetarian version."}]
+    },
+    {
+      "id":"r_bee_hoon_soup", "name":"Bee Hoon Soup with Chicken & Greens", "malaysian":true,
+      "mealType":["breakfast","lunch","dinner"], "dietTags":["halal-friendly"], "goalTags":["weight_loss","maintenance"],
+      "allergens":[], "difficulty":"Easy", "prepTime":10, "cookTime":15, "servings":2,
+      "ingredients":[
+        {"id":"bee_hoon","qty":120},{"id":"chicken_breast","qty":150},{"id":"kangkung","qty":100},
+        {"id":"ginger","qty":8},{"id":"soy_sauce_lowsodium","qty":10}
+      ],
+      "instructions":[
+        "Simmer chicken breast in water with ginger until cooked; shred.",
+        "Blanch bee hoon and kangkung in the same broth.",
+        "Combine in a bowl, season lightly with low-sodium soy sauce."
+      ],
+      "healthBenefits":["A light, broth-based meal that's naturally lower in calories — good for a weight-loss day."],
+      "substitutions":[]
+    },
+    {
+      "id":"r_chapati_curry", "name":"Wholemeal Chapati with Vegetable Curry", "malaysian":true,
+      "mealType":["breakfast","dinner"], "dietTags":["vegetarian","halal-friendly"], "goalTags":["maintenance","weight_loss"],
+      "allergens":[], "difficulty":"Medium", "prepTime":20, "cookTime":25, "servings":3,
+      "ingredients":[
+        {"id":"chapati_flour","qty":180},{"id":"chickpeas","qty":150},{"id":"carrot","qty":60},
+        {"id":"eggplant","qty":80},{"id":"coconut_milk_light","qty":80},{"id":"turmeric_powder","qty":4},{"id":"garlic","qty":8}
+      ],
+      "instructions":[
+        "Knead wholemeal flour with water into a soft dough; rest 15 minutes and roll into thin chapatis.",
+        "Dry-cook chapatis on a hot flat pan (no oil needed).",
+        "Simmer chickpeas, carrot and eggplant with turmeric, garlic and light coconut milk until tender.",
+        "Serve curry with warm chapati."
+      ],
+      "healthBenefits":["Wholemeal flour and chickpeas bring plenty of fibre and plant protein."],
+      "substitutions":[{"from":"chapati_flour","to":"roti_canai_dough","note":"Use roti canai dough occasionally as a treat — higher in fat."}]
+    },
+    {
+      "id":"r_ikan_bakar", "name":"Ikan Bakar (Grilled Spiced Fish)", "malaysian":true,
+      "mealType":["lunch","dinner"], "dietTags":["halal-friendly","gluten-free"], "goalTags":["muscle_gain","weight_loss","diabetic_friendly"],
+      "allergens":["fish"], "difficulty":"Easy", "prepTime":15, "cookTime":15, "servings":2,
+      "ingredients":[
+        {"id":"fish_fillet","qty":300},{"id":"turmeric_powder","qty":5},{"id":"garlic","qty":10},
+        {"id":"ginger","qty":8},{"id":"sambal_belacan","qty":15},{"id":"rice_brown","qty":150}
+      ],
+      "instructions":[
+        "Marinate fish with turmeric, garlic and ginger for 15 minutes.",
+        "Grill or air-fry (instead of deep-frying) until just cooked through.",
+        "Serve with a small side of sambal and brown rice."
+      ],
+      "healthBenefits":["Grilling instead of deep-frying keeps this a lean, low-fat protein source ideal for muscle gain or fat loss."],
+      "substitutions":[]
+    },
+    {
+      "id":"r_sayur_lodeh", "name":"Sayur Lodeh (Mixed Vegetable Stew)", "malaysian":true,
+      "mealType":["lunch","dinner"], "dietTags":["vegetarian","halal-friendly","gluten-free"], "goalTags":["weight_loss","diabetic_friendly"],
+      "allergens":[], "difficulty":"Easy", "prepTime":15, "cookTime":20, "servings":3,
+      "ingredients":[
+        {"id":"cabbage","qty":100},{"id":"long_beans","qty":80},{"id":"carrot","qty":60},
+        {"id":"tofu_firm","qty":120},{"id":"coconut_milk_light","qty":100},{"id":"turmeric_powder","qty":3}
+      ],
+      "instructions":[
+        "Simmer vegetables and tofu in light coconut milk with turmeric until just tender.",
+        "Season lightly and serve with brown rice or on its own."
+      ],
+      "healthBenefits":["High in fibre and low glycaemic impact — a good option for stable blood sugar."],
+      "substitutions":[]
+    },
+    {
+      "id":"r_oats_bowl", "name":"Overnight Oats with Berries", "malaysian":false,
+      "mealType":["breakfast","snack"], "dietTags":["vegetarian"], "goalTags":["weight_loss","muscle_gain","maintenance"],
+      "allergens":["dairy"], "difficulty":"Easy", "prepTime":5, "cookTime":0, "servings":1,
+      "ingredients":[
+        {"id":"oats","qty":50},{"id":"milk_low_fat","qty":150},{"id":"berries_mixed","qty":60},
+        {"id":"chia_seeds","qty":10},{"id":"honey","qty":10}
+      ],
+      "instructions":[
+        "Mix oats, milk and chia seeds in a jar.",
+        "Refrigerate overnight.",
+        "Top with berries and a drizzle of honey before eating."
+      ],
+      "healthBenefits":["Chia and oats provide soluble fibre that supports steady energy and satiety."],
+      "substitutions":[{"from":"milk_low_fat","to":"greek_yogurt","note":"Use yogurt instead of milk for a thicker, higher-protein version."}]
+    },
+    {
+      "id":"r_greek_yogurt_bowl", "name":"Greek Yogurt Protein Bowl", "malaysian":false,
+      "mealType":["breakfast","snack"], "dietTags":["vegetarian","gluten-free"], "goalTags":["muscle_gain","weight_loss"],
+      "allergens":["dairy"], "difficulty":"Easy", "prepTime":5, "cookTime":0, "servings":1,
+      "ingredients":[
+        {"id":"greek_yogurt","qty":200},{"id":"banana","qty":1},{"id":"chia_seeds","qty":8},{"id":"honey","qty":8}
+      ],
+      "instructions":["Slice banana over yogurt.","Sprinkle chia seeds and drizzle honey."],
+      "healthBenefits":["High-protein, low-effort breakfast that supports muscle repair."],
+      "substitutions":[]
+    },
+    {
+      "id":"r_veg_omelette", "name":"Vegetable Omelette", "malaysian":false,
+      "mealType":["breakfast"], "dietTags":["vegetarian","gluten-free"], "goalTags":["muscle_gain","weight_loss"],
+      "allergens":["egg"], "difficulty":"Easy", "prepTime":10, "cookTime":10, "servings":1,
+      "ingredients":[
+        {"id":"eggs","qty":3},{"id":"tomato","qty":40},{"id":"carrot","qty":30},{"id":"cabbage","qty":30}
+      ],
+      "instructions":[
+        "Whisk eggs, fold in finely chopped vegetables.",
+        "Cook in a lightly greased non-stick pan until set."
+      ],
+      "healthBenefits":["High protein-to-calorie ratio; vegetables add fibre and vitamins."],
+      "substitutions":[]
+    },
+    {
+      "id":"r_grilled_chicken_salad", "name":"Grilled Chicken Salad", "malaysian":false,
+      "mealType":["lunch","dinner"], "dietTags":["gluten-free"], "goalTags":["weight_loss","muscle_gain"],
+      "allergens":[], "difficulty":"Easy", "prepTime":15, "cookTime":15, "servings":2,
+      "ingredients":[
+        {"id":"chicken_breast","qty":250},{"id":"cucumber","qty":80},{"id":"tomato","qty":80},
+        {"id":"carrot","qty":50},{"id":"olive_oil","qty":10}
+      ],
+      "instructions":[
+        "Grill chicken breast seasoned simply with pepper and a little salt.",
+        "Toss chopped vegetables with olive oil.",
+        "Slice chicken over the salad."
+      ],
+      "healthBenefits":["High-protein, high-fibre, calorie-controlled meal — great for a cutting phase."],
+      "substitutions":[{"from":"chicken_breast","to":"tempeh","note":"Grilled tempeh slices for a vegetarian version."}]
+    },
+    {
+      "id":"r_quinoa_tofu_bowl", "name":"Quinoa & Tofu Buddha Bowl", "malaysian":false,
+      "mealType":["lunch","dinner"], "dietTags":["vegetarian","vegan","gluten-free"], "goalTags":["weight_loss","muscle_gain"],
+      "allergens":["soy"], "difficulty":"Easy", "prepTime":15, "cookTime":20, "servings":2,
+      "ingredients":[
+        {"id":"quinoa","qty":160},{"id":"tofu_firm","qty":150},{"id":"broccoli","qty":100},
+        {"id":"carrot","qty":50},{"id":"olive_oil","qty":10},{"id":"soy_sauce_lowsodium","qty":10}
+      ],
+      "instructions":[
+        "Cook quinoa according to package directions.",
+        "Pan-sear tofu cubes until golden.",
+        "Steam broccoli and carrot.",
+        "Combine in a bowl, drizzle with olive oil and soy sauce."
+      ],
+      "healthBenefits":["Quinoa is a complete plant protein; combined with tofu this bowl covers all essential amino acids."],
+      "substitutions":[]
+    },
+    {
+      "id":"r_steamed_fish", "name":"Teochew-Style Steamed Fish", "malaysian":true,
+      "mealType":["lunch","dinner"], "dietTags":["halal-friendly","gluten-free"], "goalTags":["diabetic_friendly","weight_loss"],
+      "allergens":["fish"], "difficulty":"Medium", "prepTime":15, "cookTime":20, "servings":2,
+      "ingredients":[
+        {"id":"fish_fillet","qty":300},{"id":"ginger","qty":15},{"id":"garlic","qty":8},
+        {"id":"soy_sauce_lowsodium","qty":15},{"id":"tomato","qty":50}
+      ],
+      "instructions":[
+        "Place fish on a plate with ginger, garlic and tomato.",
+        "Steam for 12–15 minutes until just cooked.",
+        "Finish with a splash of low-sodium soy sauce and steaming juices."
+      ],
+      "healthBenefits":["Steaming keeps this virtually oil-free while preserving delicate fish protein and omega-3s."],
+      "substitutions":[]
+    },
+    {
+      "id":"r_ulam_salad", "name":"Ulam-Style Herb Salad with Grilled Chicken", "malaysian":true,
+      "mealType":["lunch"], "dietTags":["gluten-free","halal-friendly"], "goalTags":["weight_loss","diabetic_friendly"],
+      "allergens":[], "difficulty":"Easy", "prepTime":15, "cookTime":15, "servings":2,
+      "ingredients":[
+        {"id":"chicken_breast","qty":200},{"id":"cucumber","qty":60},{"id":"long_beans","qty":50},
+        {"id":"tomato","qty":50},{"id":"sambal_belacan","qty":15}
+      ],
+      "instructions":[
+        "Grill chicken breast and slice.",
+        "Arrange raw ulam-style vegetables (cucumber, long beans, tomato).",
+        "Serve with a small portion of sambal belacan as dressing."
+      ],
+      "healthBenefits":["A traditional low-calorie, high-fibre way of eating vegetables raw with minimal added fat."],
+      "substitutions":[]
+    },
+    {
+      "id":"r_fruit_bowl", "name":"Malaysian Fruit Bowl", "malaysian":true,
+      "mealType":["snack"], "dietTags":["vegan","vegetarian","gluten-free"], "goalTags":["weight_loss","maintenance","diabetic_friendly"],
+      "allergens":[], "difficulty":"Easy", "prepTime":10, "cookTime":0, "servings":2,
+      "ingredients":[
+        {"id":"papaya","qty":120},{"id":"dragonfruit","qty":100},{"id":"banana","qty":1}
+      ],
+      "instructions":["Cube papaya and dragon fruit, slice banana, mix and chill."],
+      "healthBenefits":["Papaya and dragon fruit are rich in vitamin C and fibre, and are naturally low glycaemic-load fruits."],
+      "substitutions":[]
+    },
+    {
+      "id":"r_peanut_banana_smoothie", "name":"Peanut Banana Protein Smoothie", "malaysian":false,
+      "mealType":["snack","breakfast"], "dietTags":["vegetarian"], "goalTags":["muscle_gain"],
+      "allergens":["dairy","peanut"], "difficulty":"Easy", "prepTime":5, "cookTime":0, "servings":1,
+      "ingredients":[
+        {"id":"banana","qty":1},{"id":"milk_low_fat","qty":200},{"id":"peanuts","qty":20},{"id":"honey","qty":10}
+      ],
+      "instructions":["Blend all ingredients until smooth."],
+      "healthBenefits":["A calorie-dense, protein-rich snack useful for a muscle-gain phase."],
+      "substitutions":[]
+    },
+    {
+      "id":"r_chickpea_salad_snack", "name":"Spiced Chickpea Snack", "malaysian":false,
+      "mealType":["snack"], "dietTags":["vegan","vegetarian","gluten-free"], "goalTags":["weight_loss","diabetic_friendly"],
+      "allergens":[], "difficulty":"Easy", "prepTime":10, "cookTime":15, "servings":2,
+      "ingredients":[
+        {"id":"chickpeas","qty":200},{"id":"turmeric_powder","qty":3},{"id":"olive_oil","qty":8}
+      ],
+      "instructions":["Toss chickpeas with turmeric and a little olive oil.","Roast or air-fry until lightly crisp."],
+      "healthBenefits":["High fibre, plant-based protein snack that helps with satiety."],
+      "substitutions":[]
+    },
+    {
+      "id":"r_tempeh_stirfry", "name":"Tempeh & Vegetable Stir-Fry", "malaysian":true,
+      "mealType":["lunch","dinner"], "dietTags":["vegan","vegetarian"], "goalTags":["muscle_gain","weight_loss"],
+      "allergens":["soy"], "difficulty":"Easy", "prepTime":10, "cookTime":15, "servings":2,
+      "ingredients":[
+        {"id":"tempeh","qty":180},{"id":"broccoli","qty":80},{"id":"carrot","qty":50},
+        {"id":"garlic","qty":8},{"id":"soy_sauce_lowsodium","qty":15},{"id":"rice_brown","qty":150}
+      ],
+      "instructions":[
+        "Pan-fry tempeh cubes with garlic until golden.",
+        "Add broccoli and carrot, stir-fry until just tender.",
+        "Season with low-sodium soy sauce, serve over brown rice."
+      ],
+      "healthBenefits":["Tempeh is fermented and rich in protein, fibre and probiotics."],
+      "substitutions":[]
+    },
+    {
+      "id":"r_vegetable_soup", "name":"Clear Vegetable & Chicken Soup", "malaysian":false,
+      "mealType":["dinner","lunch"], "dietTags":["gluten-free"], "goalTags":["weight_loss","diabetic_friendly"],
+      "allergens":[], "difficulty":"Easy", "prepTime":10, "cookTime":25, "servings":3,
+      "ingredients":[
+        {"id":"chicken_thigh","qty":200},{"id":"carrot","qty":60},{"id":"cabbage","qty":80},
+        {"id":"peas_frozen","qty":80},{"id":"ginger","qty":8}
+      ],
+      "instructions":[
+        "Simmer chicken thigh with ginger until tender, skim fat from the surface.",
+        "Add vegetables, cook until soft.",
+        "Season lightly and serve hot."
+      ],
+      "healthBenefits":["A low-calorie, warming, high-volume meal that's satisfying without excess energy density."],
+      "substitutions":[]
+    },
+    {
+      "id":"r_roti_canai_egg", "name":"Roti Canai with Egg (Occasional Treat)", "malaysian":true,
+      "mealType":["breakfast"], "dietTags":["vegetarian","halal-friendly"], "goalTags":["maintenance"],
+      "allergens":["egg","gluten"], "difficulty":"Hard", "prepTime":40, "cookTime":10, "servings":2,
+      "ingredients":[
+        {"id":"roti_canai_dough","qty":200},{"id":"eggs","qty":2}
+      ],
+      "instructions":[
+        "Stretch and layer the dough, then pan-fry with a light amount of oil until flaky.",
+        "Crack egg onto the dough while cooking for roti telur."
+      ],
+      "healthBenefits":["Best enjoyed occasionally given the higher fat content — pair with a vegetable-based curry to balance the meal."],
+      "substitutions":[{"from":"roti_canai_dough","to":"chapati_flour","note":"Swap for wholemeal chapati as the everyday alternative."}]
+    }
+  ]
+}
