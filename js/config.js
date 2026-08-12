@@ -25,7 +25,7 @@ const CONFIG = {
   SUPABASE_ANON_KEY: 'sb_publishable_idzkrVgI4E4x5BXI35ifLA_fI9zA1Lj',
 
   // App metadata used in PDF exports and the auth screen.
-  APP_NAME: 'Health Meal Planning Agent',
+  APP_NAME: 'meal-planner',
 
   // Local storage schema version. Bump this and add a migration in
   // storage.js's MIGRATIONS map whenever the stored data shape changes.
