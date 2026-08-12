@@ -21,8 +21,8 @@
 
 const CONFIG = {
   // From Supabase Dashboard → Project Settings → API
-  SUPABASE_URL: '',
-  SUPABASE_ANON_KEY: '',
+  SUPABASE_URL: 'https://bkrgxmjsyghzrostfvrt.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_idzkrVgI4E4x5BXI35ifLA_fI9zA1Lj',
 
   // App metadata used in PDF exports and the auth screen.
   APP_NAME: 'Health Meal Planning Agent',
