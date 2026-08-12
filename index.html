@@ -11,7 +11,26 @@
 <link rel="stylesheet" href="./css/styles.css" />
 </head>
 <body>
-<div id="app">
+
+<div id="auth-screen" class="auth-screen">
+  <div class="auth-card">
+    <svg class="brand-mark" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" width="52" height="52">
+      <circle cx="20" cy="20" r="19" fill="var(--primary)"/>
+      <path d="M20 9c-6 5-6 14 0 19 6-5 6-14 0-19z" fill="var(--accent)"/>
+    </svg>
+    <h1>Health Meal Planning Agent</h1>
+    <p class="auth-tagline">Plan smarter. Eat better. Track your progress.</p>
+    <div class="auth-actions" id="auth-actions">
+      <button class="btn btn-ghost auth-btn" id="auth-google-btn">Continue with Google</button>
+      <button class="btn btn-ghost auth-btn" id="auth-microsoft-btn">Continue with Microsoft</button>
+      <div class="auth-divider"><span>OR</span></div>
+      <button class="btn btn-primary auth-btn" id="auth-guest-btn">Continue as Guest</button>
+    </div>
+    <p class="small auth-note" id="auth-note"></p>
+  </div>
+</div>
+
+<div id="app" hidden>
 
   <aside class="sidebar" id="sidebar">
     <div class="brand">
@@ -51,6 +70,10 @@
           <div class="topbar-sub" id="topbar-sub">Today's overview at a glance</div>
         </div>
       </div>
+      <div class="topbar-right" id="topbar-right">
+        <div class="sync-badge" id="sync-badge" hidden></div>
+        <div class="user-menu" id="user-menu"></div>
+      </div>
     </header>
 
     <main>
@@ -79,7 +102,10 @@
 
 <div id="toast-region" aria-live="polite"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js" defer></script>
 <script type="module" src="./js/app.js"></script>
 </body>
 </html>

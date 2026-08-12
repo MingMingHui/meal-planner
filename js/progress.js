@@ -16,6 +16,7 @@ import Storage from './storage.js';
 import { calcBMI, bmiCategory } from './nutrition.js';
 import { ICONS, escapeHTML, fmt, toast } from './ui.js';
 import { shareContent } from './share.js';
+import { exportProgressPDF } from './pdf.js';
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
@@ -150,6 +151,7 @@ export function renderProgressView() {
       <div class="g-12 card">
         <div class="card-title"><h3>Share your progress</h3></div>
         <div class="share-row" id="progress-share"></div>
+        <button class="btn btn-ghost btn-sm" id="progress-pdf-btn" style="margin-top:10px;">${ICONS.sparkle} Download PDF</button>
       </div>
     </div>
   `;
@@ -179,6 +181,7 @@ export function renderProgressView() {
     title: 'My progress summary',
     text: buildShareSummary(progress, profile),
   });
+  container.querySelector('#progress-pdf-btn').addEventListener('click', () => exportProgressPDF());
 }
 
 function renderCharts(progress) {

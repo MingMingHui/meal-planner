@@ -13,8 +13,9 @@
 
 import Storage from './storage.js';
 import { getIngredientDB } from './data.js';
-import { ICONS, escapeHTML, fmt, toast, el } from './ui.js';
+import { ICONS, escapeHTML, fmt, toast } from './ui.js';
 import { shareContent } from './share.js';
+import { exportShoppingListPDF } from './pdf.js';
 
 const CATEGORY_ORDER = ['Vegetables', 'Protein', 'Fruit', 'Dairy', 'Grains', 'Condiments', 'Frozen', 'Miscellaneous'];
 
@@ -91,6 +92,7 @@ export function renderShoppingView() {
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <button class="btn btn-ghost btn-sm" id="export-json-btn">Export JSON</button>
         <button class="btn btn-ghost btn-sm" id="export-text-btn">Export text</button>
+        <button class="btn btn-ghost btn-sm" id="export-pdf-btn">${ICONS.sparkle} Download PDF</button>
         <button class="btn btn-ghost btn-sm" id="print-btn">Print</button>
         <button class="btn btn-danger btn-sm" id="clear-checked-btn">Clear checked</button>
       </div>
@@ -114,6 +116,7 @@ export function renderShoppingView() {
 
   container.querySelector('#export-json-btn').addEventListener('click', () => downloadFile('shopping-list.json', JSON.stringify(Storage.getShoppingList(), null, 2), 'application/json'));
   container.querySelector('#export-text-btn').addEventListener('click', () => downloadFile('shopping-list.txt', buildTextList(Storage.getShoppingList()), 'text/plain'));
+  container.querySelector('#export-pdf-btn').addEventListener('click', () => exportShoppingListPDF());
   container.querySelector('#print-btn').addEventListener('click', () => printList(Storage.getShoppingList()));
   container.querySelector('#clear-checked-btn').addEventListener('click', () => {
     const current = Storage.getShoppingList();

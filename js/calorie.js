@@ -11,7 +11,7 @@
  */
 
 import Storage from './storage.js';
-import { calcFullProfile, ACTIVITY_FACTORS, GOAL_ADJUSTMENTS } from './nutrition.js';
+import { calcFullProfile, ACTIVITY_FACTORS } from './nutrition.js';
 import { escapeHTML, fmt } from './ui.js';
 
 export function renderCalculatorView() {

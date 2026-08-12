@@ -11,7 +11,7 @@
  * ----------------------------------------------------------------------------
  */
 
-import { ICONS, toast, escapeHTML } from './ui.js';
+import { ICONS, toast } from './ui.js';
 
 export function shareContent(container, { title = 'Health Meal Planning Agent', text = '', url = window.location.href } = {}) {
   if (!container) return;

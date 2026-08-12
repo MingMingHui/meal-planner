@@ -22,6 +22,7 @@ import { ICONS, escapeHTML, fmt, toast, openModal, closeModal, el } from './ui.j
 import { addRecipeToShoppingList } from './shopping.js';
 import { shareContent } from './share.js';
 import { loadAppData, getIngredientDB as _getIngredientDB, getRecipeDB as _getRecipeDB } from './data.js';
+import { exportRecipePDF, exportMealPlanPDF } from './pdf.js';
 
 export const loadRecipeData = loadAppData;
 function ingredientArr() { return _getIngredientDB(); }
@@ -151,6 +152,7 @@ export function renderPlannerView() {
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
           <button class="btn btn-ghost" id="regen-local">${ICONS.planner} Regenerate</button>
           <button class="btn btn-accent" id="regen-ai">${ICONS.sparkle} Regenerate with AI</button>
+          <button class="btn btn-ghost" id="planner-pdf-btn">${ICONS.sparkle} Download PDF</button>
         </div>
       </div>
     </div>
@@ -195,6 +197,8 @@ export function renderPlannerView() {
       btn.disabled = false; btn.innerHTML = `${ICONS.sparkle} Regenerate with AI`;
     }
   });
+
+  container.querySelector('#planner-pdf-btn').addEventListener('click', () => exportMealPlanPDF());
 }
 
 function emptyProfilePrompt(message) {
@@ -237,6 +241,12 @@ function buildMealCard(meal, idx) {
 
 function openRecipeModal(meal) {
   const { recipe, nutrition } = meal;
+  const ingredientTextLines = recipe.ingredients?.length
+    ? recipe.ingredients.map(i => {
+        const ing = ingredientArr().find(x => x.id === i.id);
+        return `${fmt(i.qty)}${ing?.unit === 'pc' ? ' pc' : ing?.unit || 'g'} ${ing?.name || i.id}`;
+      })
+    : (recipe.ingredientsText || []);
   const ingredientLines = recipe.ingredients?.length
     ? recipe.ingredients.map(i => {
         const ing = ingredientArr().find(x => x.id === i.id);
@@ -277,10 +287,12 @@ function openRecipeModal(meal) {
       <div>
         <h4 style="font-size:0.9rem;">Share this recipe</h4>
         <div class="share-row" id="recipe-share"></div>
+        <button class="btn btn-ghost btn-sm" id="recipe-pdf-btn" style="margin-top:10px;">${ICONS.sparkle} Download PDF</button>
       </div>
     </div>
   `);
   document.getElementById('modal-close').addEventListener('click', closeModal);
+  document.getElementById('recipe-pdf-btn').addEventListener('click', () => exportRecipePDF(recipe, nutrition, ingredientTextLines));
   shareContent(document.getElementById('recipe-share'), {
     title: recipe.name,
     text: `${recipe.name} — ${fmt(nutrition.kcal)} kcal, ${fmt(nutrition.protein, 1)}g protein per serving. Planned with Health Meal Planning Agent.`,
@@ -382,6 +394,7 @@ function renderAIRecipeCard(r) {
       <div class="divider"></div>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <div class="share-row" id="ai-recipe-share"></div>
+        <button class="btn btn-ghost btn-sm" id="ai-recipe-pdf-btn">${ICONS.sparkle} Download PDF</button>
       </div>
     </div>
   `;
@@ -404,6 +417,7 @@ function renderLocalRecipeCard(recipe, nutrition) {
       ${recipe.healthBenefits?.length ? `<h4 style="font-size:0.9rem;">Health benefits</h4><ul>${recipe.healthBenefits.map(s => `<li>${escapeHTML(s)}</li>`).join('')}</ul>` : ''}
       <div class="divider"></div>
       <button class="btn btn-primary btn-sm" id="local-add-shop">Add to shopping list</button>
+      <button class="btn btn-ghost btn-sm" id="ai-recipe-pdf-btn">${ICONS.sparkle} Download PDF</button>
       <div class="share-row" id="ai-recipe-share" style="margin-top:10px;"></div>
     </div>
   `;
@@ -416,6 +430,32 @@ function wireGeneratedRecipeCard(slot) {
       const id = slot.querySelector('[data-recipe-id]')?.dataset.recipeId;
       const recipe = recipeArr().find(r => r.id === id);
       if (recipe) { addRecipeToShoppingList(recipe); toast('Added to shopping list.', 'success'); }
+    });
+  }
+  const pdfBtn = slot.querySelector('#ai-recipe-pdf-btn');
+  if (pdfBtn) {
+    pdfBtn.addEventListener('click', () => {
+      const card = slot.querySelector('.card');
+      const name = slot.querySelector('h3')?.textContent || 'Recipe';
+      const id = card?.dataset.recipeId;
+      if (id) {
+        // Local database recipe — recompute structured nutrition + ingredients.
+        const recipe = recipeArr().find(r => r.id === id);
+        const nutrition = calcRecipeNutrition(recipe, ingredientArr()).perServing;
+        const lines = recipe.ingredients.map(i => {
+          const ing = ingredientArr().find(x => x.id === i.id);
+          return `${fmt(i.qty)}${ing?.unit === 'pc' ? ' pc' : ing?.unit || 'g'} ${ing?.name || i.id}`;
+        });
+        exportRecipePDF(recipe, nutrition, lines);
+      } else {
+        // AI-generated recipe — pull the structured data back out of the last recipe log entry.
+        const log = Storage.getRecipeLog();
+        const last = log[log.length - 1];
+        if (!last) { toast('Could not find this recipe to export.', 'error'); return; }
+        const nutrition = last.nutritionPerServing || {};
+        const lines = (last.ingredients || []).map(i => `${i.amount || ''} ${i.item || ''}`.trim());
+        exportRecipePDF({ name: last.name, instructions: last.instructions }, nutrition, lines);
+      }
     });
   }
   const shareSlot = slot.querySelector('#ai-recipe-share');

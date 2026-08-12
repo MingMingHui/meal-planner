@@ -15,13 +15,21 @@
 import Storage from './storage.js';
 import { calcFullProfile, ACTIVITY_FACTORS, GOAL_ADJUSTMENTS } from './nutrition.js';
 import { PROVIDERS, coachReply, hasAPIKey } from './ai.js';
-import { ICONS, escapeHTML, fmt, toast, optionsFromMap } from './ui.js';
+import { ICONS, escapeHTML, fmt, toast, optionsFromMap, openModal, closeModal, el } from './ui.js';
 import { initRouter, registerView, navigate } from './router.js';
 import { loadAppData } from './data.js';
 import { renderCalculatorView } from './calorie.js';
 import { renderPlannerView, renderRecipesView, buildLocalMealPlan } from './recipes.js';
 import { renderShoppingView } from './shopping.js';
 import { renderProgressView, getTodayCalories, getTodayWaterCups, addWaterCup, logCalories } from './progress.js';
+import {
+  initializeAuth, isCloudConfigured, signInWithGoogle, signInWithMicrosoft, signOut,
+  isAuthenticated, getUserProfile, listenToAuthChanges,
+} from './auth.js';
+import { deleteUserData as deleteCloudData } from './cloudStorage.js';
+import { syncAll, getSyncStatus, onSyncStatusChange, syncAvailable, checkFirstLoginState, resolveFirstLogin, wireAutoSync } from './syncManager.js';
+import { exportCompleteReportPDF, exportProfilePDF } from './pdf.js';
+import CONFIG from './config.js';
 
 /* ============================== Theme ============================== */
 
@@ -46,7 +54,344 @@ function initTheme() {
   });
 }
 
-/* ============================== Dashboard ============================== */
+/* ============================== Auth gate ============================== */
+
+/**
+ * Decides whether to show the login/guest screen or go straight into the
+ * app: skipped automatically if a session is already restored (including
+ * right after an OAuth redirect back to this page) or if this browser
+ * already chose "Continue as Guest" before.
+ * @returns {Promise<void>} resolves once the app shell should be shown.
+ */
+function decideInitialScreen() {
+  return new Promise((resolve) => {
+    const authScreen = document.getElementById('auth-screen');
+    const appShell = document.getElementById('app');
+
+    const proceed = () => { authScreen.hidden = true; appShell.hidden = false; resolve(); };
+
+    if (isAuthenticated() || Storage.getMeta().guestConfirmed) { proceed(); return; }
+
+    authScreen.hidden = false;
+    appShell.hidden = true;
+    wireAuthScreenButtons(proceed);
+  });
+}
+
+function wireAuthScreenButtons(proceed) {
+  const googleBtn = document.getElementById('auth-google-btn');
+  const msBtn = document.getElementById('auth-microsoft-btn');
+  const guestBtn = document.getElementById('auth-guest-btn');
+  const note = document.getElementById('auth-note');
+
+  if (!isCloudConfigured()) {
+    googleBtn.disabled = true;
+    msBtn.disabled = true;
+    note.textContent = 'Cloud sign-in isn\u2019t configured for this deployment yet — continue as a guest. (See README → Authentication Setup to enable Google/Microsoft sign-in.)';
+  }
+
+  googleBtn.addEventListener('click', async () => {
+    try { await signInWithGoogle(); } // page navigates away on success
+    catch (err) { note.textContent = err.message; toast(err.message, 'error', 5000); }
+  });
+  msBtn.addEventListener('click', async () => {
+    try { await signInWithMicrosoft(); }
+    catch (err) { note.textContent = err.message; toast(err.message, 'error', 5000); }
+  });
+  guestBtn.addEventListener('click', () => {
+    Storage.saveMeta({ guestConfirmed: true });
+    proceed();
+  });
+}
+
+/**
+ * Runs once, right after we know the user is signed in (fresh sign-in or a
+ * restored session): checks for the "existing data on this device" case and
+ * lets the user choose how to reconcile it, then performs an initial sync.
+ */
+async function handlePostAuth() {
+  if (!isAuthenticated()) return;
+  try {
+    const state = await checkFirstLoginState();
+    if (state.needsDecision) {
+      await showDataConflictModal();
+    } else {
+      await resolveFirstLogin('merge');
+    }
+  } catch (err) {
+    console.error('[app] post-auth sync check failed', err);
+    toast('Could not check your cloud data — you can retry from Settings → Cloud Sync.', 'error', 4500);
+  }
+  maybeShowOnboarding();
+}
+
+function showDataConflictModal() {
+  return new Promise((resolve) => {
+    openModal(`
+      <div class="modal-head"><h3>Existing data found</h3></div>
+      <p class="small">We found existing data on this device, and your account already has data saved in the cloud. What would you like to do?</p>
+      <div class="conflict-options">
+        <button class="btn btn-primary" data-choice="merge">Merge Both <span class="small" style="display:block; font-weight:400;">Recommended — combines both safely</span></button>
+        <button class="btn btn-ghost" data-choice="cloud">Keep Cloud Data</button>
+        <button class="btn btn-ghost" data-choice="local">Keep This Device's Data</button>
+      </div>
+    `, { onClose: () => resolve() });
+
+    document.querySelectorAll('[data-choice]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const choice = btn.dataset.choice;
+        closeModal();
+        toast('Syncing your data…', 'default', 2000);
+        await resolveFirstLogin(choice);
+        toast('Your data is up to date.', 'success');
+        renderCurrentViewIfActive(['dashboard', 'planner', 'shopping', 'progress']);
+        resolve();
+      });
+    });
+  });
+}
+
+function renderCurrentViewIfActive(viewIds) {
+  // Cheap refresh: re-render dashboard since it's the most common landing view after sync.
+  if (viewIds.includes('dashboard') && !document.getElementById('view-dashboard').hasAttribute('hidden')) renderDashboard();
+}
+
+/** Shows the multi-step onboarding flow once, right after first sign-in, if the profile looks incomplete. */
+function maybeShowOnboarding() {
+  const profile = Storage.getProfile();
+  const meta = Storage.getMeta();
+  if (meta.onboardingDone) return;
+  if (profile.weight && profile.height && profile.age) { Storage.saveMeta({ onboardingDone: true }); return; }
+  showOnboardingModal();
+}
+
+const ONBOARDING_STEPS = [
+  { title: 'Personal information', fields: ['weight', 'height', 'age', 'gender'] },
+  { title: 'Health & nutrition goals', fields: ['activityLevel', 'goal'] },
+  { title: 'Diet & allergies', fields: ['dietPreference', 'allergies', 'medicalNotes'] },
+  { title: 'Lifestyle', fields: ['mealBudget', 'cookingSkill', 'mealsPerDay'] },
+  { title: 'Preferences', fields: ['favoriteFoods', 'dislikedFoods'] },
+];
+
+function onboardingFieldHTML(field, p) {
+  const toStr = (arr) => escapeHTML((arr || []).join(', '));
+  switch (field) {
+    case 'weight': return `<div class="field"><label>Weight (kg)</label><input type="number" step="0.1" name="weight" value="${p.weight ?? ''}" min="20" max="400" /></div>`;
+    case 'height': return `<div class="field"><label>Height (cm)</label><input type="number" step="0.1" name="height" value="${p.height ?? ''}" min="80" max="250" /></div>`;
+    case 'age': return `<div class="field"><label>Age</label><input type="number" name="age" value="${p.age ?? ''}" min="10" max="110" /></div>`;
+    case 'gender': return `<div class="field"><label>Gender</label><select name="gender">${optionsFromMap(GENDER_OPTIONS, p.gender)}</select></div>`;
+    case 'activityLevel': return `<div class="field full"><label>Activity level</label><select name="activityLevel">${optionsFromMap(ACTIVITY_OPTIONS, p.activityLevel)}</select></div>`;
+    case 'goal': return `<div class="field full"><label>Goal</label><select name="goal">${optionsFromMap(GOAL_OPTIONS, p.goal)}</select></div>`;
+    case 'dietPreference': return `<div class="field full"><label>Diet preference</label><select name="dietPreference">${optionsFromMap(DIET_OPTIONS, p.dietPreference)}</select></div>`;
+    case 'allergies': return `<div class="field full"><label>Allergies (comma-separated, optional)</label><input type="text" name="allergies" value="${toStr(p.allergies)}" placeholder="e.g. shellfish, peanut" /></div>`;
+    case 'medicalNotes': return `<div class="field full"><label>Medical notes (optional)</label><textarea name="medicalNotes">${escapeHTML(p.medicalNotes || '')}</textarea></div>`;
+    case 'mealBudget': return `<div class="field"><label>Meal budget</label><select name="mealBudget">${optionsFromMap(BUDGET_OPTIONS, p.mealBudget)}</select></div>`;
+    case 'cookingSkill': return `<div class="field"><label>Cooking skill</label><select name="cookingSkill">${optionsFromMap(SKILL_OPTIONS, p.cookingSkill)}</select></div>`;
+    case 'mealsPerDay': return `<div class="field"><label>Meals per day</label><input type="number" name="mealsPerDay" value="${p.mealsPerDay || 3}" min="3" max="5" /></div>`;
+    case 'favoriteFoods': return `<div class="field full"><label>Favorite foods (optional)</label><input type="text" name="favoriteFoods" value="${toStr(p.favoriteFoods)}" placeholder="e.g. nasi lemak, tofu" /></div>`;
+    case 'dislikedFoods': return `<div class="field full"><label>Disliked foods (optional)</label><input type="text" name="dislikedFoods" value="${toStr(p.dislikedFoods)}" placeholder="e.g. okra, blue cheese" /></div>`;
+    default: return '';
+  }
+}
+
+function showOnboardingModal(stepIndex = 0, collected = {}) {
+  const profile = { ...Storage.getProfile(), ...collected };
+  const step = ONBOARDING_STEPS[stepIndex];
+  const isLast = stepIndex === ONBOARDING_STEPS.length - 1;
+
+  openModal(`
+    <div class="modal-head"><h3>Welcome! Let's personalize your meal planning.</h3></div>
+    <div class="onboarding-steps">${ONBOARDING_STEPS.map((s, i) => `<span class="${i < stepIndex ? 'done' : i === stepIndex ? 'active' : ''}"></span>`).join('')}</div>
+    <p class="eyebrow">Step ${stepIndex + 1} of ${ONBOARDING_STEPS.length}</p>
+    <form id="onboarding-form">
+      <div class="form-grid">${step.fields.map(f => onboardingFieldHTML(f, profile)).join('')}</div>
+      <div class="divider"></div>
+      <div style="display:flex; justify-content:space-between; gap:10px;">
+        <button type="button" class="btn btn-ghost btn-sm" id="onboarding-skip">Skip for now</button>
+        <div style="display:flex; gap:10px;">
+          ${stepIndex > 0 ? `<button type="button" class="btn btn-ghost btn-sm" id="onboarding-back">Back</button>` : ''}
+          <button type="submit" class="btn btn-primary btn-sm">${isLast ? 'Finish' : 'Next'}</button>
+        </div>
+      </div>
+    </form>
+  `);
+
+  document.getElementById('onboarding-skip').addEventListener('click', () => {
+    Storage.saveMeta({ onboardingDone: true });
+    closeModal();
+  });
+  document.getElementById('onboarding-back')?.addEventListener('click', () => showOnboardingModal(stepIndex - 1, collected));
+  document.getElementById('onboarding-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const stepData = {};
+    step.fields.forEach(f => {
+      if (['allergies', 'favoriteFoods', 'dislikedFoods'].includes(f)) {
+        stepData[f] = String(fd.get(f) || '').split(',').map(s => s.trim()).filter(Boolean);
+      } else if (['weight', 'height'].includes(f)) {
+        stepData[f] = fd.get(f) ? parseFloat(fd.get(f)) : null;
+      } else if (['age', 'mealsPerDay'].includes(f)) {
+        stepData[f] = fd.get(f) ? parseInt(fd.get(f), 10) : null;
+      } else {
+        stepData[f] = fd.get(f);
+      }
+    });
+    const merged = { ...collected, ...stepData };
+    if (isLast) {
+      Storage.saveProfile(merged);
+      Storage.saveMealPlan(null);
+      Storage.saveMeta({ onboardingDone: true });
+      closeModal();
+      toast('Your personalized meal planner is ready.', 'success');
+      navigate('dashboard');
+      if (syncAvailable()) syncAll();
+    } else {
+      showOnboardingModal(stepIndex + 1, merged);
+    }
+  });
+}
+
+/* ============================== User menu & sync badge ============================== */
+
+function renderUserMenu() {
+  const container = document.getElementById('user-menu');
+  if (isAuthenticated()) {
+    const profile = getUserProfile();
+    const initials = (profile.name || '?').slice(0, 1).toUpperCase();
+    container.innerHTML = `
+      <button class="user-menu-trigger" id="user-menu-trigger">
+        <span class="user-avatar">${profile.avatarUrl ? `<img src="${escapeHTML(profile.avatarUrl)}" alt="" />` : initials}</span>
+        <span class="um-trigger-name">${escapeHTML(profile.name)}</span>
+      </button>
+    `;
+    container.querySelector('#user-menu-trigger').addEventListener('click', () => toggleUserDropdown(profile));
+  } else {
+    container.innerHTML = `<button class="user-menu-trigger" id="user-menu-trigger"><span class="user-avatar">${ICONS.profile}</span><span class="um-trigger-name">Guest</span></button>`;
+    container.querySelector('#user-menu-trigger').addEventListener('click', () => toggleGuestDropdown());
+  }
+}
+
+function closeDropdown() { document.getElementById('user-menu-dropdown')?.remove(); }
+
+function toggleUserDropdown(profile) {
+  if (document.getElementById('user-menu-dropdown')) { closeDropdown(); return; }
+  const dropdown = el(`
+    <div class="user-menu-dropdown" id="user-menu-dropdown">
+      <div class="um-header">
+        <div class="um-name">${escapeHTML(profile.name)}</div>
+        <div class="um-email">${escapeHTML(profile.email)}</div>
+        <div class="small" style="margin-top:4px;">Signed in with ${escapeHTML(capitalizeWord(profile.provider))}</div>
+      </div>
+      <button class="um-item" data-action="profile">${ICONS.profile} My Profile</button>
+      <button class="um-item" data-action="sync">${ICONS.progress} Cloud Sync</button>
+      <button class="um-item" data-action="export">${ICONS.shopping} Export My Data</button>
+      <button class="um-item" data-action="pdf">${ICONS.sparkle} Download PDF</button>
+      <button class="um-item" data-action="settings">${ICONS.settings} Settings</button>
+      <button class="um-item danger" data-action="signout">${ICONS.close} Sign Out</button>
+    </div>
+  `);
+  document.getElementById('user-menu').appendChild(dropdown);
+  dropdown.addEventListener('click', async (e) => {
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    if (!action) return;
+    closeDropdown();
+    if (action === 'profile') navigate('profile');
+    else if (action === 'sync' || action === 'settings') navigate('settings');
+    else if (action === 'export') exportJSONFile();
+    else if (action === 'pdf') exportCompleteReportPDF();
+    else if (action === 'signout') handleSignOut();
+  });
+  setTimeout(() => document.addEventListener('click', outsideDropdownListener, { once: true, capture: true }), 0);
+}
+
+function toggleGuestDropdown() {
+  if (document.getElementById('user-menu-dropdown')) { closeDropdown(); return; }
+  const cloudNote = isCloudConfigured()
+    ? `<button class="um-item" data-action="google">${ICONS.sparkle} Continue with Google</button><button class="um-item" data-action="microsoft">${ICONS.sparkle} Continue with Microsoft</button>`
+    : `<p class="small" style="padding:8px 10px;">Cloud sign-in isn't configured for this deployment.</p>`;
+  const dropdown = el(`
+    <div class="user-menu-dropdown" id="user-menu-dropdown">
+      <div class="um-header"><div class="um-name">Guest</div><div class="um-email">Data is stored on this device only</div></div>
+      ${cloudNote}
+      <button class="um-item" data-action="export">${ICONS.shopping} Export My Data</button>
+      <button class="um-item" data-action="pdf">${ICONS.sparkle} Download PDF</button>
+      <button class="um-item" data-action="settings">${ICONS.settings} Settings</button>
+    </div>
+  `);
+  document.getElementById('user-menu').appendChild(dropdown);
+  dropdown.addEventListener('click', async (e) => {
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    if (!action) return;
+    closeDropdown();
+    if (action === 'google') signInWithGoogle().catch(err => toast(err.message, 'error', 5000));
+    else if (action === 'microsoft') signInWithMicrosoft().catch(err => toast(err.message, 'error', 5000));
+    else if (action === 'export') exportJSONFile();
+    else if (action === 'pdf') exportCompleteReportPDF();
+    else if (action === 'settings') navigate('settings');
+  });
+  setTimeout(() => document.addEventListener('click', outsideDropdownListener, { once: true, capture: true }), 0);
+}
+
+function outsideDropdownListener(e) {
+  const dropdown = document.getElementById('user-menu-dropdown');
+  if (dropdown && !dropdown.contains(e.target) && !e.target.closest('#user-menu-trigger')) closeDropdown();
+}
+
+function capitalizeWord(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+async function handleSignOut() {
+  if (!window.confirm('Sign out of this device? Your local data stays on this device and your cloud data is unaffected.')) return;
+  try {
+    await signOut();
+    toast('Signed out.', 'success');
+    renderUserMenu();
+    updateSyncBadge('idle');
+    navigate('dashboard');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function updateSyncBadge(statusOverride) {
+  const badge = document.getElementById('sync-badge');
+  if (!badge) return;
+  const { status } = statusOverride ? { status: statusOverride } : getSyncStatus();
+
+  if (!isAuthenticated() || !isCloudConfigured()) { badge.hidden = true; return; }
+  badge.hidden = false;
+  badge.className = `sync-badge ${status}`;
+  const labels = { idle: 'Not synced yet', syncing: 'Syncing…', synced: 'Synced', error: 'Sync failed', offline: 'Offline' };
+  badge.innerHTML = `<span class="sync-dot"></span><span class="sync-label">${labels[status] || status}</span>`;
+}
+
+function exportJSONFile() {
+  const payload = Storage.exportAll();
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'health-meal-planner-data.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  toast('Data exported.', 'success');
+}
+
+function exportCSVFile() {
+  const progress = Storage.getProgress();
+  const rows = [['type', 'date', 'value']];
+  (progress.weightLog || []).forEach(e => rows.push(['weight_kg', e.date, e.weight]));
+  (progress.calorieLog || []).forEach(e => rows.push(['calories_kcal', e.date, e.kcal]));
+  Object.entries(progress.waterLog || {}).forEach(([date, cups]) => rows.push(['water_cups', date, cups]));
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'health-meal-planner-progress.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  toast('Progress exported as CSV.', 'success');
+}
+
+
 
 function renderDashboard() {
   const container = document.getElementById('view-dashboard');
@@ -74,6 +419,14 @@ function renderDashboard() {
 
   container.innerHTML = `
     <div class="grid grid-dash">
+      <div class="g-12" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:-8px;">
+        <div>
+          <h3 style="margin:0;">${greeting()}${isAuthenticated() ? `, ${escapeHTML(getUserProfile().name)}` : ''}</h3>
+          <p class="small" style="margin:0;">${isAuthenticated() ? (syncAvailable() ? 'Your plan is synced across your devices.' : 'Signed in — cloud sync unavailable right now.') : 'Using this device only — sign in to sync across devices.'}</p>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="dash-pdf-btn">${ICONS.sparkle} Download PDF</button>
+      </div>
+
       <div class="g-4 card" style="display:flex; flex-direction:column; align-items:center;">
         <div class="eyebrow">Today's calories</div>
         ${ringSVG(ringPct, `${fmt(consumed)}`, `of ${fmt(result.calorieTarget)} kcal`)}
@@ -132,6 +485,14 @@ function renderDashboard() {
   container.querySelector('#water-plus').addEventListener('click', () => { addWaterCup(1); renderDashboard(); });
   container.querySelector('#water-minus').addEventListener('click', () => { addWaterCup(-1); renderDashboard(); });
   container.querySelector('#dash-view-planner').addEventListener('click', () => navigate('planner'));
+  container.querySelector('#dash-pdf-btn').addEventListener('click', () => exportCompleteReportPDF());
+}
+
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
 }
 
 function ringSVG(pct, bigText, smallText) {
@@ -197,9 +558,14 @@ function renderProfileView() {
       </div>
 
       <div class="divider"></div>
-      <button class="btn btn-primary" type="submit">${ICONS.profile} Save profile</button>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn btn-primary" type="submit">${ICONS.profile} Save profile</button>
+        <button class="btn btn-ghost" type="button" id="profile-pdf-btn">${ICONS.sparkle} Download PDF</button>
+      </div>
     </form>
   `;
+
+  container.querySelector('#profile-pdf-btn').addEventListener('click', () => exportProfilePDF());
 
   container.querySelector('#profile-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -226,6 +592,7 @@ function renderProfileView() {
     Storage.saveMealPlan(null); // invalidate cached plan so it regenerates for the new profile
     toast('Profile saved.', 'success');
     navigate('dashboard');
+    if (syncAvailable()) syncAll();
   });
 }
 
@@ -235,9 +602,41 @@ function renderSettingsView() {
   const container = document.getElementById('view-settings');
   const s = Storage.getSettings();
   const providerOptions = Object.fromEntries(Object.entries(PROVIDERS).map(([k, v]) => [k, v.label]));
+  const authed = isAuthenticated();
+  const profile = authed ? getUserProfile() : null;
+  const lastSynced = Storage.getLastSyncedAt();
 
   container.innerHTML = `
     <div class="grid grid-dash">
+
+      <div class="g-6 card">
+        <div class="card-title"><h3>Account</h3></div>
+        ${authed ? `
+          <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+            <span class="user-avatar" style="width:44px; height:44px; font-size:1rem;">${profile.avatarUrl ? `<img src="${escapeHTML(profile.avatarUrl)}" alt="" />` : escapeHTML(profile.name.slice(0, 1).toUpperCase())}</span>
+            <div><div style="font-weight:700;">${escapeHTML(profile.name)}</div><div class="small">${escapeHTML(profile.email)}</div></div>
+          </div>
+          <div class="small">Signed in with <b>${escapeHTML(capitalizeWord(profile.provider))}</b></div>
+          <button class="btn btn-danger btn-sm" id="settings-signout-btn" style="margin-top:12px;">Sign Out</button>
+        ` : `
+          <p class="small">You're using this app as a guest. Sign in to sync your plans and progress across devices.</p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px;">
+            <button class="btn btn-ghost btn-sm" id="settings-google-btn" ${isCloudConfigured() ? '' : 'disabled'}>Continue with Google</button>
+            <button class="btn btn-ghost btn-sm" id="settings-microsoft-btn" ${isCloudConfigured() ? '' : 'disabled'}>Continue with Microsoft</button>
+          </div>
+          ${!isCloudConfigured() ? `<p class="small" style="margin-top:8px;">Cloud sign-in isn't configured for this deployment yet. See README → Authentication Setup.</p>` : ''}
+        `}
+      </div>
+
+      <div class="g-6 card">
+        <div class="card-title"><h3>Cloud Sync</h3></div>
+        ${authed && isCloudConfigured() ? `
+          <div class="nutrient-row" style="margin-bottom:10px;"><span>Status:</span><span id="settings-sync-badge-slot"></span></div>
+          <p class="small">Last synchronized: ${lastSynced ? new Date(lastSynced).toLocaleString() : 'Never'}</p>
+          <button class="btn btn-primary btn-sm" id="sync-now-btn">${ICONS.sparkle} Sync Now</button>
+        ` : `<p class="small">${authed ? 'Cloud sync is not configured for this deployment.' : 'Sign in above to enable cloud sync.'}</p>`}
+      </div>
+
       <div class="g-6 card">
         <div class="card-title"><h3>Appearance</h3></div>
         <div class="form-grid">
@@ -249,7 +648,7 @@ function renderSettingsView() {
 
       <div class="g-6 card">
         <div class="card-title"><h3>AI Provider</h3></div>
-        <p class="small">Bring your own free API key. Nothing is sent anywhere except the provider you choose, directly from your browser.</p>
+        <p class="small">Bring your own free API key. Nothing is sent anywhere except the provider you choose, directly from your browser. Your key stays in this browser only — it is never synced to the cloud.</p>
         <div class="form-grid">
           <div class="field full"><label>Provider</label><select id="set-provider">${optionsFromMap(providerOptions, s.aiProvider)}</select></div>
           <div class="field full"><label>Model</label><select id="set-model"></select></div>
@@ -261,13 +660,28 @@ function renderSettingsView() {
 
       <div class="g-12 card">
         <div class="card-title"><h3>Your data</h3></div>
-        <p class="small">All your data stays on this device in your browser's local storage. Nothing is uploaded anywhere.</p>
-        <div style="display:flex; gap:10px; flex-wrap:wrap;">
-          <button class="btn btn-ghost" id="export-all-btn">Export all data</button>
-          <label class="btn btn-ghost" for="import-all-input" style="cursor:pointer;">Import data</label>
+        <p class="small">${authed ? 'Your data is stored on this device and, when cloud sync is available, in your account.' : 'All your data stays on this device in your browser\'s local storage. Nothing is uploaded anywhere unless you sign in.'}</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+          <button class="btn btn-ghost" id="export-json-btn">Export JSON</button>
+          <button class="btn btn-ghost" id="export-csv-btn">Export CSV</button>
+          <button class="btn btn-ghost" id="download-pdf-btn">${ICONS.sparkle} Download PDF Report</button>
+          <label class="btn btn-ghost" for="import-all-input" style="cursor:pointer;">Import Data</label>
           <input type="file" id="import-all-input" accept="application/json" class="hidden" />
-          <button class="btn btn-danger" id="clear-all-btn">Clear all data</button>
         </div>
+        <div class="divider"></div>
+        <p class="small" style="margin-bottom:8px;"><b>Destructive actions</b> — these cannot be undone.</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-danger" id="delete-local-btn">Delete Local Data</button>
+          <button class="btn btn-danger" id="delete-cloud-btn" ${authed && isCloudConfigured() ? '' : 'disabled'}>Delete Cloud Data</button>
+        </div>
+        ${authed ? `<p class="small" style="margin-top:10px;">Full account deletion (removing your sign-in identity itself) isn't something this static, backend-less app can safely perform from the browser — see README → Delete Account for the supported workflow via your Supabase project.</p>` : ''}
+      </div>
+
+      <div class="g-12 card">
+        <div class="card-title"><h3>Privacy</h3></div>
+        <p class="small"><b>Guest users:</b> your data is stored only in this browser's local storage. Nothing leaves your device.</p>
+        <p class="small"><b>Signed-in users:</b> your data is additionally synchronized to a cloud database (Supabase), protected so only your account can read or write it.</p>
+        <p class="small"><b>AI features:</b> when you use the Recipe Generator, AI Meal Plan, or AI Coach, relevant profile details (e.g. weight, goals, allergies) are sent to the AI provider you configured, directly from your browser, to generate a response. This data is not "100% private" once sent to that third-party provider — review your chosen provider's own privacy policy.</p>
       </div>
     </div>
   `;
@@ -298,16 +712,28 @@ function renderSettingsView() {
     toast('AI settings saved.', 'success');
   });
 
-  container.querySelector('#export-all-btn').addEventListener('click', () => {
-    const payload = Storage.exportAll();
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'health-meal-planner-data.json';
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-    toast('Data exported.', 'success');
+  container.querySelector('#settings-google-btn')?.addEventListener('click', () => signInWithGoogle().catch(err => toast(err.message, 'error', 5000)));
+  container.querySelector('#settings-microsoft-btn')?.addEventListener('click', () => signInWithMicrosoft().catch(err => toast(err.message, 'error', 5000)));
+  container.querySelector('#settings-signout-btn')?.addEventListener('click', handleSignOut);
+
+  container.querySelector('#sync-now-btn')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const result = await syncAll();
+    btn.disabled = false;
+    if (result.ok) { toast('Sync complete.', 'success'); renderSettingsView(); }
+    else if (result.reason === 'offline') toast('You are offline — will sync automatically once reconnected.', 'default', 4000);
+    else toast('Sync failed. Please try again.', 'error');
   });
+  if (authed && isCloudConfigured()) {
+    const badgeSlot = container.querySelector('#settings-sync-badge-slot');
+    const { status } = getSyncStatus();
+    badgeSlot.innerHTML = `<span class="sync-badge ${status}"><span class="sync-dot"></span><span class="sync-label">${status}</span></span>`;
+  }
+
+  container.querySelector('#export-json-btn').addEventListener('click', exportJSONFile);
+  container.querySelector('#export-csv-btn').addEventListener('click', exportCSVFile);
+  container.querySelector('#download-pdf-btn').addEventListener('click', () => exportCompleteReportPDF());
 
   container.querySelector('#import-all-input').addEventListener('change', async (e) => {
     const file = e.target.files[0];
@@ -315,20 +741,63 @@ function renderSettingsView() {
     try {
       const text = await file.text();
       const payload = JSON.parse(text);
-      const result = Storage.importAll(payload);
-      if (result.ok) { toast('Data imported successfully.', 'success'); navigate('dashboard'); }
-      else toast(`Import failed: ${result.error}`, 'error');
+      showImportPreviewModal(payload);
     } catch (err) {
       toast('That file could not be read as valid JSON.', 'error');
     }
     e.target.value = '';
   });
 
-  container.querySelector('#clear-all-btn').addEventListener('click', () => {
-    if (!window.confirm('This will permanently delete all your profile, plans, progress and settings from this device. Continue?')) return;
-    Storage.clearAll();
-    toast('All data cleared.', 'success');
+  container.querySelector('#delete-local-btn').addEventListener('click', () => {
+    if (!window.confirm('This will permanently delete your profile, plans, progress and settings from THIS DEVICE only. Your cloud data (if any) is not affected. Continue?')) return;
+    Storage.clearLocalData();
+    toast('Local data deleted.', 'success');
     setTimeout(() => window.location.reload(), 900);
+  });
+
+  container.querySelector('#delete-cloud-btn').addEventListener('click', async () => {
+    if (!window.confirm('This will permanently delete all of your data from the cloud database. Your local data on this device is not affected. Continue?')) return;
+    try {
+      await deleteCloudData();
+      toast('Cloud data deleted.', 'success');
+      renderSettingsView();
+    } catch (err) {
+      toast(err.message || 'Could not delete cloud data.', 'error');
+    }
+  });
+}
+
+function showImportPreviewModal(payload) {
+  const preview = Storage.previewImport(payload);
+  if (!preview.ok) { toast(preview.error, 'error', 5000); return; }
+  const s = preview.summary;
+  openModal(`
+    <div class="modal-head"><h3>Import data</h3></div>
+    <p class="small">Here's what's in this file. Choose how to apply it — merging is the safest option and never silently overwrites your existing data.</p>
+    <ul class="small">
+      ${s.hasProfile ? '<li>Profile information</li>' : ''}
+      ${s.hasMealPlan ? '<li>A saved meal plan</li>' : ''}
+      ${s.hasShopping ? `<li>${s.shoppingItemCount} shopping list item(s)</li>` : ''}
+      ${s.hasProgress ? `<li>${s.weightEntryCount} weight entr${s.weightEntryCount === 1 ? 'y' : 'ies'}, ${s.calorieEntryCount} calorie entr${s.calorieEntryCount === 1 ? 'y' : 'ies'}</li>` : ''}
+      ${s.hasSettings ? '<li>App settings (excluding any API key)</li>' : ''}
+    </ul>
+    ${s.exportedAt ? `<p class="small">Exported: ${new Date(s.exportedAt).toLocaleString()}</p>` : ''}
+    <div class="conflict-options">
+      <button class="btn btn-primary" data-mode="merge">Merge with existing data (recommended)</button>
+      <button class="btn btn-danger" data-mode="replace">Replace existing data</button>
+      <button class="btn btn-ghost" id="import-cancel-btn">Cancel</button>
+    </div>
+  `);
+  document.getElementById('import-cancel-btn').addEventListener('click', closeModal);
+  document.querySelectorAll('[data-mode]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode;
+      if (mode === 'replace' && !window.confirm('Replace mode will overwrite the sections included in this file. Continue?')) return;
+      const result = Storage.importAll(payload, mode);
+      closeModal();
+      if (result.ok) { toast('Data imported successfully.', 'success'); navigate('dashboard'); if (syncAvailable()) syncAll(); }
+      else toast(`Import failed: ${result.error}`, 'error');
+    });
   });
 }
 
@@ -450,6 +919,7 @@ async function initApp() {
   initNavIcons();
   initTheme();
   initMobileNav();
+  Storage.runMigrations();
 
   registerView('dashboard', renderDashboard);
   registerView('profile', renderProfileView);
@@ -461,13 +931,36 @@ async function initApp() {
   registerView('coach', renderCoachView);
   registerView('settings', renderSettingsView);
 
-  try {
-    await loadAppData();
-  } catch (e) {
+  const dataPromise = loadAppData().catch(() => {
     toast('Some data failed to load. Functionality may be limited until you reload.', 'error', 5000);
-  }
+  });
 
+  await initializeAuth();
+  wireAutoSync();
+  onSyncStatusChange(() => updateSyncBadge());
+  listenToAuthChanges(async (event) => {
+    if (event === 'SIGNED_IN') {
+      renderUserMenu();
+      updateSyncBadge();
+      await handlePostAuth();
+      if (!document.getElementById('view-dashboard').hasAttribute('hidden')) renderDashboard();
+    } else if (event === 'SIGNED_OUT') {
+      renderUserMenu();
+      updateSyncBadge('idle');
+    }
+  });
+
+  await dataPromise;
+  await decideInitialScreen();
+
+  renderUserMenu();
+  updateSyncBadge();
   initRouter('dashboard');
+
+  if (isAuthenticated()) {
+    await handlePostAuth();
+    renderDashboard();
+  }
 
   window.addEventListener('online', () => toast('Back online.', 'success'));
   window.addEventListener('offline', () => toast('You are offline — locally stored data and plans still work.', 'default', 4000));
