@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Health Meal Planning Agent</title>
+<meta name="description" content="A personalized, AI-powered health meal planning agent — calorie calculator, meal planner, recipe generator, shopping lists and progress tracking, all in your browser." />
+<meta name="theme-color" content="#2F5233" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><circle cx=%2212%22 cy=%2212%22 r=%2211%22 fill=%22%232F5233%22/><path d=%22M12 5c-3.5 3-3.5 8 0 11 3.5-3 3.5-8 0-11z%22 fill=%22%23E08A1E%22/></svg>" />
+<link rel="stylesheet" href="./css/variables.css" />
+<link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="20" cy="20" r="19" fill="var(--primary)"/>
+        <path d="M20 9c-6 5-6 14 0 19 6-5 6-14 0-19z" fill="var(--accent)"/>
+      </svg>
+      <div class="brand-name">Health Meal<br/>Planning Agent<span>AI Nutrition Assistant</span></div>
+    </div>
+
+    <ul class="nav-list" id="nav-list">
+      <li><button class="nav-btn" data-nav="dashboard" data-icon="dashboard" data-label="Dashboard"></button></li>
+      <li><button class="nav-btn" data-nav="profile" data-icon="profile" data-label="Profile"></button></li>
+      <li><button class="nav-btn" data-nav="calculator" data-icon="calculator" data-label="Calorie Calculator"></button></li>
+      <li><button class="nav-btn" data-nav="planner" data-icon="planner" data-label="Meal Planner"></button></li>
+      <li><button class="nav-btn" data-nav="recipes" data-icon="recipe" data-label="Recipe Generator"></button></li>
+      <li><button class="nav-btn" data-nav="shopping" data-icon="shopping" data-label="Shopping List"></button></li>
+      <li><button class="nav-btn" data-nav="progress" data-icon="progress" data-label="Progress Tracker"></button></li>
+      <li><button class="nav-btn" data-nav="coach" data-icon="coach" data-label="AI Coach"></button></li>
+      <li><button class="nav-btn" data-nav="settings" data-icon="settings" data-label="Settings"></button></li>
+    </ul>
+
+    <div class="sidebar-foot">
+      <div class="theme-toggle">
+        <span>Appearance</span>
+        <button class="icon-btn" id="theme-toggle-btn" aria-label="Toggle dark mode"></button>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <button class="icon-btn menu-btn" id="menu-btn" aria-label="Open menu"></button>
+        <div>
+          <h1 id="topbar-title">Dashboard</h1>
+          <div class="topbar-sub" id="topbar-sub">Today's overview at a glance</div>
+        </div>
+      </div>
+      <div class="topbar-right" id="topbar-right">
+        <div class="sync-badge" id="sync-badge" hidden></div>
+        <div class="user-menu" id="user-menu"></div>
+      </div>
+    </header>
+
+    <div class="guest-banner" id="guest-banner" hidden></div>
+
+    <main>
+      <section class="view" data-view="dashboard" id="view-dashboard"></section>
+      <section class="view" data-view="profile" id="view-profile" hidden></section>
+      <section class="view" data-view="calculator" id="view-calculator" hidden></section>
+      <section class="view" data-view="planner" id="view-planner" hidden></section>
+      <section class="view" data-view="recipes" id="view-recipes" hidden></section>
+      <section class="view" data-view="shopping" id="view-shopping" hidden></section>
+      <section class="view" data-view="progress" id="view-progress" hidden></section>
+      <section class="view" data-view="coach" id="view-coach" hidden></section>
+      <section class="view" data-view="settings" id="view-settings" hidden></section>
+    </main>
+  </div>
+
+  <nav class="tabbar" id="tabbar">
+    <button data-nav="dashboard" data-icon="dashboard" aria-label="Dashboard"></button>
+    <button data-nav="planner" data-icon="planner" aria-label="Meal Planner"></button>
+    <button data-nav="recipes" data-icon="recipe" aria-label="Recipes"></button>
+    <button data-nav="shopping" data-icon="shopping" aria-label="Shopping"></button>
+    <button data-nav="coach" data-icon="coach" aria-label="AI Coach"></button>
+    <button data-nav="settings" data-icon="settings" aria-label="Settings"></button>
+  </nav>
+
+</div>
+
+<div id="toast-region" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js" defer></script>
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>

@@ -58,12 +58,20 @@ The app works fully offline-capable for its core planning features (local recipe
 
 ## Architecture
 
-The app is a static single-page application. `index.html` is the shell; JavaScript ES Modules render each view into empty `<section>` containers on navigation. There is no framework, no bundler, and no build step — every file is loaded as-is by the browser.
+The app is two static pages, not one combined page: `index.html` is a standalone login/guest-choice screen (controlled by `authGate.js`), and `dashboard.html` is the app shell (controlled by `app.js`), which is itself a single-page app internally — JavaScript ES Modules render each view into empty `<section>` containers on navigation within that page. There is no framework, no bundler, and no build step — every file is loaded as-is by the browser.
+
+Moving between the two pages is a real browser navigation (`window.location`), not a `hidden`-attribute toggle within one document:
+
+- **`index.html`** (`authGate.js`): if already signed in or already in an active guest session, redirects straight to `dashboard.html`. Otherwise wires up the Gmail/Outlook/Guest buttons; "Continue as Guest" and a completed sign-in both navigate to `dashboard.html`.
+- **`dashboard.html`** (`app.js`): on load, requires either an authenticated session or an active guest session — anyone without either (direct URL visit, stale bookmark, ended guest session) is redirected back to `index.html`. Signing out redirects back to `index.html` too.
 
 ```
-                         index.html
+                         index.html  (authGate.js — login/guest choice)
+                             │  window.location redirect, not a div toggle
+                             ▼
+                       dashboard.html
                              │
-                           app.js  ── auth gate, user menu, onboarding, dashboard/profile/settings/coach
+                           app.js  ── user menu, onboarding, dashboard/profile/settings/coach; guards this page
                              │
         ┌──────────┬─────────┼─────────┬──────────┬───────────┐
         ▼          ▼         ▼         ▼          ▼           ▼
@@ -97,7 +105,8 @@ Each module has a single, documented responsibility (see the header comment bloc
 ```
 health-meal-planner/
 │
-├── index.html
+├── index.html              # login/guest-choice page (see authGate.js) — separate page, not a div toggle
+├── dashboard.html          # app shell page (see app.js) — everything after sign-in/guest entry
 ├── README.md
 ├── LICENSE
 │
@@ -106,9 +115,10 @@ health-meal-planner/
 │   └── variables.css       # design tokens (color, type, spacing, dark mode)
 │
 ├── js/
-│   ├── app.js               # bootstrap; auth gate, dashboard, profile, settings, AI coach, onboarding
+│   ├── authGate.js          # index.html-only controller: redirect-if-already-in, wire Gmail/Outlook/Guest buttons
+│   ├── app.js               # dashboard.html-only controller: entry guard, dashboard, profile, settings, AI coach, onboarding
 │   ├── ui.js                 # shared UI helpers (icons, toast, modal, escaping)
-│   ├── router.js            # tab/view switching
+│   ├── router.js            # tab/view switching (within dashboard.html)
 │   ├── config.js             # Supabase URL/anon key placeholders (fill in your own — see below)
 │   ├── auth.js                # Supabase Auth: Gmail/Outlook sign-in (Google/Azure OAuth), session, listeners
 │   ├── storage.js            # localStorage (signed-in) / sessionStorage (guest) abstraction, versioned schema + migrations
@@ -242,9 +252,10 @@ Commit `js/config.js` with your project's URL and anon key (safe to commit — s
 
 "Continue as Guest" is scoped to the **current browser session**, not remembered indefinitely:
 
-- Guest data (profile, meal plan, shopping list, progress, chat/recipe log) is written to `sessionStorage` instead of `localStorage` — see `storage.js`'s `enterGuestSession()` / `claimGuestSessionForAccount()`. `sessionStorage` is tied to the browser tab's lifetime: it survives page refreshes and reloads (including the redirect round-trip of an OAuth sign-in), but **the browser clears it automatically once the tab/window is closed** — no app code has to run to wipe it, and it can't be recovered afterwards.
-- Because of that, every guest session shows a persistent banner (`#guest-banner` in `index.html`, rendered by `renderGuestBanner()` in `app.js`) reminding the guest to **Export JSON** or **Download PDF** before they close the browser, or sign in to keep their data permanently. A `beforeunload` handler (`wireGuestExitReminder()`) also triggers the browser's native "leave site?" confirmation if the guest has unsaved data, as a second line of defense — browsers show their own generic text there rather than a custom message, so the banner is the primary reminder.
-- The auth screen reappears on every new browser session — a guest is no longer "remembered" across a full browser restart the way the old `localStorage`-based `guestConfirmed` flag used to work. Returning within the same tab session (e.g. a page refresh) skips straight back into the app, since the session flag is still set.
+- Guest data (profile, meal plan, shopping list, progress, chat/recipe log) is written to `sessionStorage` instead of `localStorage` — see `storage.js`'s `enterGuestSession()` / `claimGuestSessionForAccount()`. `sessionStorage` is tied to the browser tab's lifetime: it survives page refreshes, reloads, and navigation between `index.html` and `dashboard.html` (including the redirect round-trip of an OAuth sign-in), but **the browser clears it automatically once the tab/window is closed** — no app code has to run to wipe it, and it can't be recovered afterwards.
+- Because of that, every guest session shows a persistent banner (`#guest-banner` in `dashboard.html`, rendered by `renderGuestBanner()` in `app.js`) reminding the guest to **Export JSON** or **Download PDF** before they close the browser, or sign in to keep their data permanently. A `beforeunload` handler (`wireGuestExitReminder()`) also triggers the browser's native "leave site?" confirmation if the guest has unsaved data, as a second line of defense — browsers show their own generic text there rather than a custom message, so the banner is the primary reminder.
+- The login page (`index.html`) reappears on every new browser session — a guest is no longer "remembered" across a full browser restart the way the old `localStorage`-based `guestConfirmed` flag used to work. Returning within the same tab session (e.g. visiting `index.html` again, or refreshing `dashboard.html`) skips straight back into the app, since the session flag is still set: `index.html` redirects straight to `dashboard.html`, and `dashboard.html` itself just re-checks the same flag rather than bouncing back.
+- Clicking "Continue as Guest" or completing a sign-in is a real page navigation to `dashboard.html` (`window.location`), not a `hidden`-attribute toggle within `index.html` — see [Architecture](#architecture).
 - **If a guest signs in mid-session** (via the guest dropdown, Settings, or the auth screen), their session data is folded into the durable `localStorage` store first (`claimGuestSessionForAccount()`), then treated as "existing local data" by the normal first-login merge flow (see [How Cloud Sync Works](#how-cloud-sync-works)) — nothing is lost by signing in.
 - Upgrading an older deployment: any guest data left over in `localStorage` from before this change is migrated into the new session-scoped store the next time "Continue as Guest" is clicked, then removed from `localStorage` (see `enterGuestSession()`'s one-time migration step) — it will still be cleared when that browser session ends unless exported.
 
@@ -356,9 +367,10 @@ _placeholder — add screenshots of the Dashboard, Meal Planner, Recipe Generato
 - [ ] iPhone Safari — same, plus Web Share API sheet on share buttons
 
 ### GitHub Pages
-- [ ] App loads at the direct project URL (`/REPOSITORY/`)
-- [ ] Refreshing any view doesn't 404 (this is a single `index.html`, so it should always work)
-- [ ] OAuth redirect returns to the correct sub-path, not the domain root
+- [ ] App loads at the direct project URL (`/REPOSITORY/`), landing on the login page (`index.html`)
+- [ ] Refreshing any view within `dashboard.html` doesn't 404 (views are hash-routed within that one page)
+- [ ] Visiting `/REPOSITORY/dashboard.html` directly with no session/guest state redirects to the login page instead of showing a broken shell
+- [ ] OAuth redirect returns to the correct sub-path (`index.html`), not the domain root, and then continues on to `dashboard.html`
 - [ ] No secrets are visible in the deployed source (view page source / dev tools — only the anon key, never a service key)
 
 ---

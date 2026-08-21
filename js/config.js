@@ -40,6 +40,15 @@ CONFIG.CLOUD_ENABLED = Boolean(CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY);
  * a GitHub Pages project site (https://USERNAME.github.io/REPOSITORY/), or
  * "/" for a user/organization site or local dev. Used to build OAuth redirect
  * URLs that survive a GitHub Pages sub-path deployment.
+ *
+ * Deliberately resolves to the *directory*, not a specific filename — that
+ * directory request is served as index.html (the login page; see
+ * authGate.js) by every static host this app targets. This holds true
+ * whether config.js is evaluated from index.html or from dashboard.html
+ * (e.g. a guest upgrading to a signed-in account mid-session), since both
+ * pages live in the same directory: either way, OAuth always redirects back
+ * to the login page, which then forwards an authenticated visitor on to
+ * dashboard.html itself.
  */
 function computeBasePath() {
   const path = window.location.pathname;

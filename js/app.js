@@ -1,11 +1,16 @@
 /**
  * app.js
  * ----------------------------------------------------------------------------
- * Purpose: Application entry point. Wires up the router, renders the
+ * Purpose: Controller for the app shell page (dashboard.html) ONLY — a
+ *          genuinely separate page from the login/guest-choice page
+ *          (index.html; see authGate.js), not a hidden/shown div toggled
+ *          within one combined document. Wires up the router, renders the
  *          Dashboard / Profile / Settings / AI Coach views (the ones that
  *          don't warrant their own file), handles theme switching, mobile
- *          navigation, and bootstraps data loading on startup.
- * Inputs:  DOM (index.html shell) + all other modules.
+ *          navigation, and bootstraps data loading on startup. Guards this
+ *          page on load: anyone here without an authenticated or guest
+ *          session is bounced back to index.html.
+ * Inputs:  DOM (dashboard.html shell) + all other modules.
  * Outputs: A fully interactive app once loadAppData() resolves.
  * Depends on: storage.js, nutrition.js, ai.js, ui.js, router.js, data.js,
  *             calorie.js, recipes.js, shopping.js, progress.js, share.js.
@@ -23,7 +28,7 @@ import { renderPlannerView, renderRecipesView, buildLocalMealPlan } from './reci
 import { renderShoppingView } from './shopping.js';
 import { renderProgressView, getTodayCalories, getTodayWaterCups, addWaterCup, logCalories } from './progress.js';
 import {
-  initializeAuth, isCloudConfigured, getEnabledProviders, signInWithGmail, signInWithOutlook, signOut,
+  initializeAuth, isCloudConfigured, signInWithGmail, signInWithOutlook, signOut,
   isAuthenticated, getUserProfile, listenToAuthChanges,
 } from './auth.js';
 import { deleteUserData as deleteCloudData } from './cloudStorage.js';
@@ -54,74 +59,7 @@ function initTheme() {
   });
 }
 
-/* ============================== Auth gate ============================== */
-
-/**
- * Decides whether to show the login/guest screen or go straight into the
- * app: skipped automatically if a session is already restored (including
- * right after an OAuth redirect back to this page) or if this browser tab
- * already has an active guest session (storage.js's isGuestSessionActive —
- * guest access is scoped to the browser session, not remembered
- * indefinitely like sign-in is).
- * @returns {Promise<void>} resolves once the app shell should be shown.
- */
-function decideInitialScreen() {
-  return new Promise((resolve) => {
-    const authScreen = document.getElementById('auth-screen');
-    const appShell = document.getElementById('app');
-
-    const proceed = () => { authScreen.hidden = true; appShell.hidden = false; resolve(); };
-
-    if (isAuthenticated()) { proceed(); return; }
-    if (Storage.isGuestSessionActive()) { Storage.enterGuestSession(); proceed(); return; }
-
-    authScreen.hidden = false;
-    appShell.hidden = true;
-    wireAuthScreenButtons(proceed);
-  });
-}
-
-function wireAuthScreenButtons(proceed) {
-  const gmailBtn = document.getElementById('auth-google-btn');
-  const outlookBtn = document.getElementById('auth-microsoft-btn');
-  const guestBtn = document.getElementById('auth-guest-btn');
-  const note = document.getElementById('auth-note');
-
-  if (!isCloudConfigured()) {
-    gmailBtn.disabled = true;
-    outlookBtn.disabled = true;
-    note.textContent = 'Cloud sign-in isn\u2019t configured for this deployment yet — continue as a guest. (See README → Authentication Setup to enable Gmail/Outlook sign-in.)';
-  } else {
-    getEnabledProviders().then(({ google, azure }) => {
-      const disabledLabels = [];
-      if (!google) { gmailBtn.disabled = true; disabledLabels.push('Gmail'); }
-      if (!azure) { outlookBtn.disabled = true; disabledLabels.push('Outlook'); }
-      if (disabledLabels.length) {
-        const verb = disabledLabels.length > 1 ? 'are not' : 'is not';
-        note.textContent = disabledLabels.join(' and ') + ' sign-in ' + verb + ' enabled for this deployment yet. Continue as a guest, or see README Authentication Setup.';
-      }
-    });
-  }
-
-  gmailBtn.addEventListener('click', async () => {
-    try { await signInWithGmail(); } // page navigates away on success
-    catch (err) { note.textContent = err.message; toast(err.message, 'error', 5000); }
-  });
-  outlookBtn.addEventListener('click', async () => {
-    try { await signInWithOutlook(); }
-    catch (err) { note.textContent = err.message; toast(err.message, 'error', 5000); }
-  });
-  guestBtn.addEventListener('click', () => {
-    // proceed() (the actual auth-screen -> app transition) must never be
-    // blocked by best-effort session bookkeeping: if either call below
-    // throws (e.g. sessionStorage restricted by a browser/enterprise
-    // policy), the guest can still get into the app - the session-scoping
-    // just degrades instead of silently eating the click.
-    try { Storage.enterGuestSession(); } catch (err) { console.error('[app] enterGuestSession failed', err); }
-    proceed();
-    try { renderGuestBanner(); } catch (err) { console.error('[app] renderGuestBanner failed', err); }
-  });
-}
+/* ============================== Post-auth handling ============================== */
 
 /**
  * Runs once, right after we know the user is signed in (fresh sign-in or a
@@ -366,13 +304,13 @@ function outsideDropdownListener(e) {
 }
 
 async function handleSignOut() {
-  if (!window.confirm('Sign out of this device? Your local data stays on this device and your cloud data is unaffected.')) return;
+  if (!window.confirm('Sign out of this device? You will be returned to the sign-in page. Your local data stays on this device and your cloud data is unaffected.')) return;
   try {
     await signOut();
-    toast('Signed out.', 'success');
-    renderUserMenu();
-    updateSyncBadge('idle');
-    navigate('dashboard');
+    // Also redirected by the SIGNED_OUT branch in initApp()'s
+    // listenToAuthChanges handler when that event fires — both target the
+    // same URL, so whichever runs first wins and the other is a no-op.
+    window.location.href = './index.html';
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -1015,6 +953,18 @@ async function initApp() {
   });
 
   await initializeAuth();
+
+  // This page (dashboard.html) requires either a signed-in session or an
+  // active guest session — both are established on the login page
+  // (index.html) before it navigates here. Anyone who lands here without
+  // either (a stale bookmark, a guest session that already ended, a direct
+  // URL visit) is bounced back to the login page instead of rendering a
+  // broken/empty dashboard. See authGate.js for the reverse guard.
+  if (!isAuthenticated() && !Storage.isGuestSessionActive()) {
+    window.location.replace('./index.html');
+    return;
+  }
+
   wireAutoSync();
   wireGuestExitReminder();
   onSyncStatusChange(() => updateSyncBadge());
@@ -1026,14 +976,14 @@ async function initApp() {
       renderGuestBanner();
       if (!document.getElementById('view-dashboard').hasAttribute('hidden')) renderDashboard();
     } else if (event === 'SIGNED_OUT') {
-      renderUserMenu();
-      updateSyncBadge('idle');
-      renderGuestBanner();
+      // No signed-in session and (per the guard above, at least at load
+      // time) not an active guest session either — this page's access
+      // condition no longer holds, so return to the login page.
+      window.location.href = './index.html';
     }
   });
 
   await dataPromise;
-  await decideInitialScreen();
 
   renderUserMenu();
   updateSyncBadge();
