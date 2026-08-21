@@ -23,7 +23,7 @@ import { renderPlannerView, renderRecipesView, buildLocalMealPlan } from './reci
 import { renderShoppingView } from './shopping.js';
 import { renderProgressView, getTodayCalories, getTodayWaterCups, addWaterCup, logCalories } from './progress.js';
 import {
-  initializeAuth, isCloudConfigured, signInWithGoogle, signInWithMicrosoft, signOut,
+  initializeAuth, isCloudConfigured, signInWithGmail, signInWithOutlook, signOut,
   isAuthenticated, getUserProfile, listenToAuthChanges,
 } from './auth.js';
 import { deleteUserData as deleteCloudData } from './cloudStorage.js';
@@ -59,8 +59,10 @@ function initTheme() {
 /**
  * Decides whether to show the login/guest screen or go straight into the
  * app: skipped automatically if a session is already restored (including
- * right after an OAuth redirect back to this page) or if this browser
- * already chose "Continue as Guest" before.
+ * right after an OAuth redirect back to this page) or if this browser tab
+ * already has an active guest session (storage.js's isGuestSessionActive —
+ * guest access is scoped to the browser session, not remembered
+ * indefinitely like sign-in is).
  * @returns {Promise<void>} resolves once the app shell should be shown.
  */
 function decideInitialScreen() {
@@ -70,7 +72,8 @@ function decideInitialScreen() {
 
     const proceed = () => { authScreen.hidden = true; appShell.hidden = false; resolve(); };
 
-    if (isAuthenticated() || Storage.getMeta().guestConfirmed) { proceed(); return; }
+    if (isAuthenticated()) { proceed(); return; }
+    if (Storage.isGuestSessionActive()) { Storage.enterGuestSession(); proceed(); return; }
 
     authScreen.hidden = false;
     appShell.hidden = true;
@@ -79,27 +82,28 @@ function decideInitialScreen() {
 }
 
 function wireAuthScreenButtons(proceed) {
-  const googleBtn = document.getElementById('auth-google-btn');
-  const msBtn = document.getElementById('auth-microsoft-btn');
+  const gmailBtn = document.getElementById('auth-google-btn');
+  const outlookBtn = document.getElementById('auth-microsoft-btn');
   const guestBtn = document.getElementById('auth-guest-btn');
   const note = document.getElementById('auth-note');
 
   if (!isCloudConfigured()) {
-    googleBtn.disabled = true;
-    msBtn.disabled = true;
-    note.textContent = 'Cloud sign-in isn\u2019t configured for this deployment yet — continue as a guest. (See README → Authentication Setup to enable Google/Microsoft sign-in.)';
+    gmailBtn.disabled = true;
+    outlookBtn.disabled = true;
+    note.textContent = 'Cloud sign-in isn\u2019t configured for this deployment yet — continue as a guest. (See README → Authentication Setup to enable Gmail/Outlook sign-in.)';
   }
 
-  googleBtn.addEventListener('click', async () => {
-    try { await signInWithGoogle(); } // page navigates away on success
+  gmailBtn.addEventListener('click', async () => {
+    try { await signInWithGmail(); } // page navigates away on success
     catch (err) { note.textContent = err.message; toast(err.message, 'error', 5000); }
   });
-  msBtn.addEventListener('click', async () => {
-    try { await signInWithMicrosoft(); }
+  outlookBtn.addEventListener('click', async () => {
+    try { await signInWithOutlook(); }
     catch (err) { note.textContent = err.message; toast(err.message, 'error', 5000); }
   });
   guestBtn.addEventListener('click', () => {
-    Storage.saveMeta({ guestConfirmed: true });
+    Storage.enterGuestSession();
+    renderGuestBanner();
     proceed();
   });
 }
@@ -111,6 +115,15 @@ function wireAuthScreenButtons(proceed) {
  */
 async function handlePostAuth() {
   if (!isAuthenticated()) return;
+  if (Storage.isGuestSessionActive()) {
+    // A former guest just signed in during this browser tab session — fold
+    // whatever they built up as a guest into the durable store first, so
+    // checkFirstLoginState() below sees it as "existing local data" to
+    // reconcile with the cloud instead of losing it when the backend
+    // switches away from sessionStorage.
+    Storage.claimGuestSessionForAccount();
+    renderGuestBanner();
+  }
   try {
     const state = await checkFirstLoginState();
     if (state.needsDecision) {
@@ -280,7 +293,7 @@ function toggleUserDropdown(profile) {
       <div class="um-header">
         <div class="um-name">${escapeHTML(profile.name)}</div>
         <div class="um-email">${escapeHTML(profile.email)}</div>
-        <div class="small" style="margin-top:4px;">Signed in with ${escapeHTML(capitalizeWord(profile.provider))}</div>
+        <div class="small" style="margin-top:4px;">Signed in with ${escapeHTML(profile.providerLabel)}</div>
       </div>
       <button class="um-item" data-action="profile">${ICONS.profile} My Profile</button>
       <button class="um-item" data-action="sync">${ICONS.progress} Cloud Sync</button>
@@ -307,11 +320,11 @@ function toggleUserDropdown(profile) {
 function toggleGuestDropdown() {
   if (document.getElementById('user-menu-dropdown')) { closeDropdown(); return; }
   const cloudNote = isCloudConfigured()
-    ? `<button class="um-item" data-action="google">${ICONS.sparkle} Continue with Google</button><button class="um-item" data-action="microsoft">${ICONS.sparkle} Continue with Microsoft</button>`
+    ? `<button class="um-item" data-action="google">${ICONS.sparkle} Continue with Gmail</button><button class="um-item" data-action="microsoft">${ICONS.sparkle} Continue with Outlook</button>`
     : `<p class="small" style="padding:8px 10px;">Cloud sign-in isn't configured for this deployment.</p>`;
   const dropdown = el(`
     <div class="user-menu-dropdown" id="user-menu-dropdown">
-      <div class="um-header"><div class="um-name">Guest</div><div class="um-email">Data is stored on this device only</div></div>
+      <div class="um-header"><div class="um-name">Guest</div><div class="um-email">Data lives only in this browser session</div></div>
       ${cloudNote}
       <button class="um-item" data-action="export">${ICONS.shopping} Export My Data</button>
       <button class="um-item" data-action="pdf">${ICONS.sparkle} Download PDF</button>
@@ -323,8 +336,8 @@ function toggleGuestDropdown() {
     const action = e.target.closest('[data-action]')?.dataset.action;
     if (!action) return;
     closeDropdown();
-    if (action === 'google') signInWithGoogle().catch(err => toast(err.message, 'error', 5000));
-    else if (action === 'microsoft') signInWithMicrosoft().catch(err => toast(err.message, 'error', 5000));
+    if (action === 'google') signInWithGmail().catch(err => toast(err.message, 'error', 5000));
+    else if (action === 'microsoft') signInWithOutlook().catch(err => toast(err.message, 'error', 5000));
     else if (action === 'export') exportJSONFile();
     else if (action === 'pdf') exportCompleteReportPDF();
     else if (action === 'settings') navigate('settings');
@@ -336,8 +349,6 @@ function outsideDropdownListener(e) {
   const dropdown = document.getElementById('user-menu-dropdown');
   if (dropdown && !dropdown.contains(e.target) && !e.target.closest('#user-menu-trigger')) closeDropdown();
 }
-
-function capitalizeWord(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 
 async function handleSignOut() {
   if (!window.confirm('Sign out of this device? Your local data stays on this device and your cloud data is unaffected.')) return;
@@ -362,6 +373,53 @@ function updateSyncBadge(statusOverride) {
   badge.className = `sync-badge ${status}`;
   const labels = { idle: 'Not synced yet', syncing: 'Syncing…', synced: 'Synced', error: 'Sync failed', offline: 'Offline' };
   badge.innerHTML = `<span class="sync-dot"></span><span class="sync-label">${labels[status] || status}</span>`;
+}
+
+/** True if the guest has anything worth exporting before their session-scoped data is cleared. */
+function hasExportableGuestData() {
+  const profile = Storage.getProfile();
+  const plan = Storage.getMealPlan();
+  const list = Storage.getShoppingList();
+  const progress = Storage.getProgress();
+  return !!(profile.weight || plan?.meals?.length || list.items?.length || progress.weightLog?.length || progress.calorieLog?.length);
+}
+
+/**
+ * Shows/hides the persistent reminder banner telling guests their data is
+ * scoped to this browser session. Re-run it after anything that changes
+ * auth state (sign-in, sign-out, entering guest mode).
+ */
+function renderGuestBanner() {
+  const banner = document.getElementById('guest-banner');
+  if (!banner) return;
+  const show = !isAuthenticated() && Storage.isGuestSessionActive();
+  banner.hidden = !show;
+  if (!show) { banner.innerHTML = ''; return; }
+  banner.innerHTML = `
+    <span class="guest-banner-text">You're in a guest session — your data lives only in this browser tab and is cleared when you close it. Export or share it below to keep it, or sign in to save it to an account.</span>
+    <div class="guest-banner-actions">
+      <button class="btn btn-ghost btn-sm" id="guest-banner-export">Export JSON</button>
+      <button class="btn btn-ghost btn-sm" id="guest-banner-pdf">${ICONS.sparkle} Download PDF</button>
+    </div>
+  `;
+  banner.querySelector('#guest-banner-export').addEventListener('click', exportJSONFile);
+  banner.querySelector('#guest-banner-pdf').addEventListener('click', () => exportCompleteReportPDF());
+}
+
+/**
+ * Warns a guest before they leave the tab that their session-scoped data
+ * (sessionStorage) is about to be cleared by the browser. Browsers show
+ * their own generic confirmation text rather than our custom message, but
+ * triggering the native dialog still gives the guest a chance to cancel and
+ * export first — the visible guest banner is the more reliable reminder.
+ */
+function wireGuestExitReminder() {
+  window.addEventListener('beforeunload', (e) => {
+    if (isAuthenticated() || !Storage.isGuestSessionActive()) return;
+    if (!hasExportableGuestData()) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
 }
 
 function exportJSONFile() {
@@ -616,13 +674,13 @@ function renderSettingsView() {
             <span class="user-avatar" style="width:44px; height:44px; font-size:1rem;">${profile.avatarUrl ? `<img src="${escapeHTML(profile.avatarUrl)}" alt="" />` : escapeHTML(profile.name.slice(0, 1).toUpperCase())}</span>
             <div><div style="font-weight:700;">${escapeHTML(profile.name)}</div><div class="small">${escapeHTML(profile.email)}</div></div>
           </div>
-          <div class="small">Signed in with <b>${escapeHTML(capitalizeWord(profile.provider))}</b></div>
+          <div class="small">Signed in with <b>${escapeHTML(profile.providerLabel)}</b></div>
           <button class="btn btn-danger btn-sm" id="settings-signout-btn" style="margin-top:12px;">Sign Out</button>
         ` : `
-          <p class="small">You're using this app as a guest. Sign in to sync your plans and progress across devices.</p>
+          <p class="small">You're using this app as a guest for this browser session only. Sign in to sync your plans and progress across devices — and to keep your data beyond this session.</p>
           <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px;">
-            <button class="btn btn-ghost btn-sm" id="settings-google-btn" ${isCloudConfigured() ? '' : 'disabled'}>Continue with Google</button>
-            <button class="btn btn-ghost btn-sm" id="settings-microsoft-btn" ${isCloudConfigured() ? '' : 'disabled'}>Continue with Microsoft</button>
+            <button class="btn btn-ghost btn-sm" id="settings-google-btn" ${isCloudConfigured() ? '' : 'disabled'}>Continue with Gmail</button>
+            <button class="btn btn-ghost btn-sm" id="settings-microsoft-btn" ${isCloudConfigured() ? '' : 'disabled'}>Continue with Outlook</button>
           </div>
           ${!isCloudConfigured() ? `<p class="small" style="margin-top:8px;">Cloud sign-in isn't configured for this deployment yet. See README → Authentication Setup.</p>` : ''}
         `}
@@ -660,7 +718,7 @@ function renderSettingsView() {
 
       <div class="g-12 card">
         <div class="card-title"><h3>Your data</h3></div>
-        <p class="small">${authed ? 'Your data is stored on this device and, when cloud sync is available, in your account.' : 'All your data stays on this device in your browser\'s local storage. Nothing is uploaded anywhere unless you sign in.'}</p>
+        <p class="small">${authed ? 'Your data is stored on this device and, when cloud sync is available, in your account.' : 'All your data stays in this browser tab\'s session storage. Nothing is uploaded anywhere unless you sign in, and it is cleared automatically once you close this browser — export or share it below to keep a copy.'}</p>
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
           <button class="btn btn-ghost" id="export-json-btn">Export JSON</button>
           <button class="btn btn-ghost" id="export-csv-btn">Export CSV</button>
@@ -679,7 +737,7 @@ function renderSettingsView() {
 
       <div class="g-12 card">
         <div class="card-title"><h3>Privacy</h3></div>
-        <p class="small"><b>Guest users:</b> your data is stored only in this browser's local storage. Nothing leaves your device.</p>
+        <p class="small"><b>Guest users:</b> your data is stored only in this browser tab's session storage — nothing leaves your device, and it is cleared automatically when you close the browser. Export, download a PDF, or share your data before then if you want to keep it.</p>
         <p class="small"><b>Signed-in users:</b> your data is additionally synchronized to a cloud database (Supabase), protected so only your account can read or write it.</p>
         <p class="small"><b>AI features:</b> when you use the Recipe Generator, AI Meal Plan, or AI Coach, relevant profile details (e.g. weight, goals, allergies) are sent to the AI provider you configured, directly from your browser, to generate a response. This data is not "100% private" once sent to that third-party provider — review your chosen provider's own privacy policy.</p>
       </div>
@@ -712,8 +770,8 @@ function renderSettingsView() {
     toast('AI settings saved.', 'success');
   });
 
-  container.querySelector('#settings-google-btn')?.addEventListener('click', () => signInWithGoogle().catch(err => toast(err.message, 'error', 5000)));
-  container.querySelector('#settings-microsoft-btn')?.addEventListener('click', () => signInWithMicrosoft().catch(err => toast(err.message, 'error', 5000)));
+  container.querySelector('#settings-google-btn')?.addEventListener('click', () => signInWithGmail().catch(err => toast(err.message, 'error', 5000)));
+  container.querySelector('#settings-microsoft-btn')?.addEventListener('click', () => signInWithOutlook().catch(err => toast(err.message, 'error', 5000)));
   container.querySelector('#settings-signout-btn')?.addEventListener('click', handleSignOut);
 
   container.querySelector('#sync-now-btn')?.addEventListener('click', async (e) => {
@@ -919,6 +977,10 @@ async function initApp() {
   initNavIcons();
   initTheme();
   initMobileNav();
+  // Point Storage at the session-scoped backend as early as possible if this
+  // tab already has a guest session running (e.g. a page refresh) — must
+  // happen before runMigrations()/loadAppData() touch anything.
+  if (Storage.isGuestSessionActive()) Storage.enterGuestSession();
   Storage.runMigrations();
 
   registerView('dashboard', renderDashboard);
@@ -937,16 +999,19 @@ async function initApp() {
 
   await initializeAuth();
   wireAutoSync();
+  wireGuestExitReminder();
   onSyncStatusChange(() => updateSyncBadge());
   listenToAuthChanges(async (event) => {
     if (event === 'SIGNED_IN') {
       renderUserMenu();
       updateSyncBadge();
       await handlePostAuth();
+      renderGuestBanner();
       if (!document.getElementById('view-dashboard').hasAttribute('hidden')) renderDashboard();
     } else if (event === 'SIGNED_OUT') {
       renderUserMenu();
       updateSyncBadge('idle');
+      renderGuestBanner();
     }
   });
 
@@ -955,10 +1020,12 @@ async function initApp() {
 
   renderUserMenu();
   updateSyncBadge();
+  renderGuestBanner();
   initRouter('dashboard');
 
   if (isAuthenticated()) {
     await handlePostAuth();
+    renderGuestBanner();
     renderDashboard();
   }
 

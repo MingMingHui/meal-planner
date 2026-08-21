@@ -2,7 +2,7 @@
 
 A production-ready, AI-powered health meal planning web application that runs **entirely in the browser** — no custom backend, no build step, no VPS. Deploy it straight to GitHub Pages and it works, with optional cloud sign-in and sync layered on top via Supabase's free tier.
 
-Built with a Malaysian-first food database (nasi lemak, laksa, roti canai, and more) alongside international staples, personalized calorie/macro science, a swappable AI layer on free open-source models, optional Google/Microsoft sign-in with cross-device cloud sync, and in-browser PDF report generation.
+Built with a Malaysian-first food database (nasi lemak, laksa, roti canai, and more) alongside international staples, personalized calorie/macro science, a swappable AI layer on free open-source models, optional "Continue with Gmail" / "Continue with Outlook" sign-in with cross-device cloud sync, and in-browser PDF report generation.
 
 ---
 
@@ -15,6 +15,7 @@ Built with a Malaysian-first food database (nasi lemak, laksa, roti canai, and m
 - [Installation](#installation)
 - [Deployment to GitHub Pages](#deployment-to-github-pages)
 - [Authentication Setup](#authentication-setup)
+- [Guest Sessions](#guest-sessions)
 - [How Cloud Sync Works](#how-cloud-sync-works)
 - [PDF Export](#pdf-export)
 - [How AI Integration Works](#how-ai-integration-works)
@@ -34,7 +35,7 @@ Built with a Malaysian-first food database (nasi lemak, laksa, roti canai, and m
 
 Health Meal Planning Agent helps people plan healthy meals around **who they actually are**: their body, their goals, their budget, their cooking skill, and their culture. Every calorie and macro number is computed with standard, explained nutrition formulas (Mifflin-St Jeor, TDEE activity factors, IOM fiber guidelines) — never a black box.
 
-The app works fully offline-capable for its core planning features (local recipe database + rule-based planner) as a guest, with **no account required**. Signing in with Google or Microsoft adds cross-device cloud sync on top, backed by a Supabase PostgreSQL database with Row Level Security, without changing anything about how the app is hosted (still 100% static, still GitHub Pages).
+The app works fully offline-capable for its core planning features (local recipe database + rule-based planner) as a guest, with **no account required** — guest access is scoped to the current browser session (see [Guest Sessions](#guest-sessions)). Signing in with Gmail or Outlook adds cross-device cloud sync on top, backed by a Supabase PostgreSQL database with Row Level Security, without changing anything about how the app is hosted (still 100% static, still GitHub Pages).
 
 ## Features
 
@@ -46,7 +47,7 @@ The app works fully offline-capable for its core planning features (local recipe
 - ✅ Shopping List — auto-built from your meal plan, grouped by category, checkable, exportable, printable
 - ✅ Progress Tracker — weight & calorie logs, Chart.js charts, weekly/monthly summaries, achievements
 - ✅ AI Coach — chat-based nutrition Q&A, grounded in your profile
-- ✅ **Authentication** — Google & Microsoft sign-in via Supabase Auth, or continue as a guest
+- ✅ **Authentication** — "Continue with Gmail" & "Continue with Outlook" sign-in via Supabase Auth (Google / Microsoft-Azure-AD OAuth under the hood), or continue as a guest for the current browser session only (see [Guest Sessions](#guest-sessions))
 - ✅ **Cloud Sync** — two-way sync between this device and your account, with offline queuing and conflict handling
 - ✅ **PDF Export** — Complete Report, Profile, Meal Plan, Shopping List, Progress, and individual Recipe reports, generated fully in-browser
 - ✅ JSON/CSV export & JSON import with a preview + merge/replace confirmation step
@@ -109,8 +110,8 @@ health-meal-planner/
 │   ├── ui.js                 # shared UI helpers (icons, toast, modal, escaping)
 │   ├── router.js            # tab/view switching
 │   ├── config.js             # Supabase URL/anon key placeholders (fill in your own — see below)
-│   ├── auth.js                # Supabase Auth: Google/Microsoft sign-in, session, listeners
-│   ├── storage.js            # localStorage abstraction, versioned schema + migrations
+│   ├── auth.js                # Supabase Auth: Gmail/Outlook sign-in (Google/Azure OAuth), session, listeners
+│   ├── storage.js            # localStorage (signed-in) / sessionStorage (guest) abstraction, versioned schema + migrations
 │   ├── cloudStorage.js       # centralized Supabase table reads/writes (RLS-scoped)
 │   ├── syncManager.js        # merges local ↔ cloud data, sync status, conflict resolution
 │   ├── data.js                 # loads/caches ingredients.json + recipes.json
@@ -154,7 +155,7 @@ python3 -m http.server 8000   # or any static file server
 
 A static server is required only because the app uses `fetch()` to load the JSON data files — opening `index.html` directly via `file://` will block those requests in most browsers.
 
-**Without configuring Supabase, the app works immediately as a guest-only app** — the auth screen still appears, but Google/Microsoft buttons are disabled with an explanatory note, and "Continue as Guest" gives you the full local experience. Nothing breaks if you never touch `config.js`.
+**Without configuring Supabase, the app works immediately as a guest-only app** — the auth screen still appears, but the Gmail/Outlook buttons are disabled with an explanatory note, and "Continue as Guest" gives you the full local experience for the current browser session (see [Guest Sessions](#guest-sessions)). Nothing breaks if you never touch `config.js`.
 
 ## Deployment to GitHub Pages
 
@@ -171,7 +172,9 @@ The app automatically detects its own base path (works correctly whether deploye
 
 ## Authentication Setup
 
-This section is the step-by-step for enabling Google/Microsoft sign-in and cloud sync. **Skipping this section is fine** — the app runs as a guest-only app without it.
+This section is the step-by-step for enabling "Continue with Gmail" / "Continue with Outlook" sign-in and cloud sync. **Skipping this section is fine** — the app runs as a guest-only app without it.
+
+> **Branding note:** the buttons read "Continue with Gmail" and "Continue with Outlook," but Gmail and Outlook are mail brands, not OAuth providers in their own right. Under the hood, "Continue with Gmail" authenticates via the standard **Google** OAuth provider (any Google/Gmail account), and "Continue with Outlook" authenticates via the standard **Microsoft/Azure AD** OAuth provider (any Microsoft/Outlook account). So everywhere below that says "Google" or "Azure," that's the underlying provider you're configuring in Supabase/Google Cloud Console/Azure Portal — none of those third-party consoles know about the "Gmail"/"Outlook" labels, which are purely a frontend (`index.html` / `js/auth.js`) presentation choice.
 
 ### 1. Create a Supabase project
 
@@ -182,13 +185,13 @@ This section is the step-by-step for enabling Google/Microsoft sign-in and cloud
 
 In your Supabase project: **Authentication → Providers**.
 
-### 3. Enable Google OAuth
+### 3. Enable Google OAuth (powers "Continue with Gmail")
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create (or reuse) a project → **APIs & Services → Credentials → Create Credentials → OAuth client ID** (type: Web application).
 2. Add this **Authorized redirect URI** (Supabase's own callback, shown on the Supabase Google provider config page): `https://<your-project-ref>.supabase.co/auth/v1/callback`.
 3. Copy the generated **Client ID** and **Client Secret** into Supabase's Google provider settings and enable it.
 
-### 4. Enable Microsoft/Azure OAuth
+### 4. Enable Microsoft/Azure OAuth (powers "Continue with Outlook")
 
 1. In the [Azure Portal](https://portal.azure.com/), go to **Azure Active Directory → App registrations → New registration**.
 2. Add the same Supabase callback URL as a **Redirect URI** (Web platform): `https://<your-project-ref>.supabase.co/auth/v1/callback`.
@@ -225,13 +228,25 @@ Only use the **anon/public** key here — see [Security](#security) below.
 
 ### 9. Deploy to GitHub Pages
 
-Commit `js/config.js` with your project's URL and anon key (safe to commit — see Security), push, and your GitHub Pages deployment now has working Google/Microsoft sign-in and cloud sync.
+Commit `js/config.js` with your project's URL and anon key (safe to commit — see Security), push, and your GitHub Pages deployment now has working Gmail/Outlook sign-in and cloud sync.
+
+---
+
+## Guest Sessions
+
+"Continue as Guest" is scoped to the **current browser session**, not remembered indefinitely:
+
+- Guest data (profile, meal plan, shopping list, progress, chat/recipe log) is written to `sessionStorage` instead of `localStorage` — see `storage.js`'s `enterGuestSession()` / `claimGuestSessionForAccount()`. `sessionStorage` is tied to the browser tab's lifetime: it survives page refreshes and reloads (including the redirect round-trip of an OAuth sign-in), but **the browser clears it automatically once the tab/window is closed** — no app code has to run to wipe it, and it can't be recovered afterwards.
+- Because of that, every guest session shows a persistent banner (`#guest-banner` in `index.html`, rendered by `renderGuestBanner()` in `app.js`) reminding the guest to **Export JSON** or **Download PDF** before they close the browser, or sign in to keep their data permanently. A `beforeunload` handler (`wireGuestExitReminder()`) also triggers the browser's native "leave site?" confirmation if the guest has unsaved data, as a second line of defense — browsers show their own generic text there rather than a custom message, so the banner is the primary reminder.
+- The auth screen reappears on every new browser session — a guest is no longer "remembered" across a full browser restart the way the old `localStorage`-based `guestConfirmed` flag used to work. Returning within the same tab session (e.g. a page refresh) skips straight back into the app, since the session flag is still set.
+- **If a guest signs in mid-session** (via the guest dropdown, Settings, or the auth screen), their session data is folded into the durable `localStorage` store first (`claimGuestSessionForAccount()`), then treated as "existing local data" by the normal first-login merge flow (see [How Cloud Sync Works](#how-cloud-sync-works)) — nothing is lost by signing in.
+- Upgrading an older deployment: any guest data left over in `localStorage` from before this change is migrated into the new session-scoped store the next time "Continue as Guest" is clicked, then removed from `localStorage` (see `enterGuestSession()`'s one-time migration step) — it will still be cleared when that browser session ends unless exported.
 
 ---
 
 ## How Cloud Sync Works
 
-- **Guest mode** (default, no sign-in): all data lives in `localStorage` only, via `storage.js`.
+- **Guest mode** (default, no sign-in): all data lives in `sessionStorage` only, for the current browser session — see [Guest Sessions](#guest-sessions).
 - **Signed in**: `syncManager.js` performs a two-way sync on sign-in, after saving your profile, and on demand via **Settings → Cloud Sync → Sync Now**. Single-record data (profile, active meal plan, shopping list, settings) uses "latest `updated_at` wins." Progress (weight/calorie/water logs) merges **per entry, per date** — logging on your phone never erases something you logged on your laptop the same day.
 - **First sign-in with existing local data**: if this browser already has guest data *and* your account already has cloud data, you're asked to **Merge Both** (recommended and default), **Keep Cloud Data**, or **Keep This Device's Data** — nothing is silently overwritten.
 - **Offline**: the sync badge shows "Offline"; local changes keep working normally. Syncing resumes automatically when the connection returns.
@@ -279,7 +294,7 @@ All are free-tier friendly, open-source-model providers — never OpenAI, never 
 
 ## Privacy
 
-- **Guest users**: data is stored only in this browser's local storage. Nothing leaves the device.
+- **Guest users**: data is stored only in this browser tab's session storage — nothing leaves the device, and it is cleared automatically once the browser is closed. See [Guest Sessions](#guest-sessions).
 - **Authenticated users**: data is additionally synchronized to the Supabase cloud database, protected by Row Level Security so only that account can read or write it.
 - **AI features**: using the Recipe Generator, AI Meal Plan, or AI Coach sends relevant profile details (e.g. weight, goals, allergies) to the AI provider you configured, directly from your browser. This data is not "100% private" once sent to that third party — review your chosen provider's own privacy policy.
 
@@ -298,11 +313,18 @@ _placeholder — add screenshots of the Dashboard, Meal Planner, Recipe Generato
 ## Testing Checklist
 
 ### Authentication
-- [ ] Google login completes and returns to the app signed in
-- [ ] Microsoft login completes and returns to the app signed in
+- [ ] Gmail (Google OAuth) login completes and returns to the app signed in
+- [ ] Outlook (Microsoft/Azure OAuth) login completes and returns to the app signed in
 - [ ] Logout clears the session but leaves local and cloud data intact
 - [ ] Session persists across a page refresh
 - [ ] Closing the OAuth popup/tab without finishing shows a reasonable message, not a crash
+
+### Guest Sessions
+- [ ] Guest data persists across a page refresh (same tab)
+- [ ] Auth screen reappears in a brand-new browser session (e.g. after fully closing and reopening the browser) — guest is not auto-remembered
+- [ ] Guest banner and its Export/Download PDF buttons appear during a guest session and work
+- [ ] Closing the tab with unsaved guest data triggers the browser's native confirmation prompt
+- [ ] Signing in mid-guest-session (Gmail/Outlook) carries the guest's data into the account via the first-login merge flow, instead of losing it
 
 ### Local Storage
 - [ ] Guest data persists across a refresh

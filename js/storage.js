@@ -1,15 +1,27 @@
 /**
  * storage.js
  * ----------------------------------------------------------------------------
- * Purpose:   Single abstraction over window.localStorage for the whole app.
- *            Every other module reads/writes app data through this file so
- *            the storage backend could be swapped later without touching
- *            business logic. Also owns the versioned local schema and
- *            migration handling, plus JSON export/import with a validated
- *            preview step.
+ * Purpose:   Single abstraction over the browser Storage APIs for the whole
+ *            app. Every other module reads/writes app data through this file
+ *            so the storage backend could be swapped later without touching
+ *            business logic. Also owns the versioned local schema, migration
+ *            handling, JSON export/import with a validated preview step, and
+ *            the guest-session backend switch (see "Guest session storage"
+ *            below).
  * Inputs:    Plain JS values (objects/arrays/strings) passed by callers.
- * Outputs:   Parsed JS values read back from localStorage, or sane defaults.
+ * Outputs:   Parsed JS values read back from storage, or sane defaults.
  * Depends on: utils.js (mergeByDate, for import merging).
+ * ----------------------------------------------------------------------------
+ * Guest session storage
+ * ----------------------------------------------------------------------------
+ * Signed-in users are backed by localStorage (durable, and mirrored to the
+ * cloud by syncManager.js). Guests are backed by sessionStorage instead —
+ * data that exists only for the current browser tab/session and disappears
+ * when the browser is closed, per the "guest sessions are ephemeral by
+ * design" product decision. app.js decides which backend is active by
+ * calling enterGuestSession() (guest) / claimGuestSessionForAccount()
+ * (guest signs in) around the auth flow; see app.js's decideInitialScreen()
+ * and handlePostAuth().
  * ----------------------------------------------------------------------------
  */
 
@@ -30,25 +42,32 @@ const KEYS = {
   meta:      `${NS}:meta`, // { schemaVersion, userId, lastSyncedAt }
 };
 
-function isStorageAvailable() {
+/** sessionStorage-only flag: set while a guest is using this browser session. */
+const GUEST_SESSION_FLAG = `${NS}:guestSessionActive`;
+
+function isStorageAvailable(store) {
   try {
     const t = '__hmpa_test__';
-    localStorage.setItem(t, '1');
-    localStorage.removeItem(t);
+    store.setItem(t, '1');
+    store.removeItem(t);
     return true;
   } catch (e) {
     return false;
   }
 }
 
-const STORAGE_OK = isStorageAvailable();
+const STORAGE_OK = isStorageAvailable(window.localStorage);
+const SESSION_STORAGE_OK = STORAGE_OK && isStorageAvailable(window.sessionStorage);
 /** In-memory fallback used only if localStorage is blocked (e.g. private mode edge cases). */
 const memoryFallback = {};
+
+/** The active backend: localStorage for signed-in users, sessionStorage for guests. */
+let backend = window.localStorage;
 
 function get(key, fallback = null) {
   try {
     if (!STORAGE_OK) return memoryFallback[key] ?? fallback;
-    const raw = localStorage.getItem(key);
+    const raw = backend.getItem(key);
     if (raw === null || raw === undefined) return fallback;
     return JSON.parse(raw);
   } catch (e) {
@@ -60,7 +79,7 @@ function get(key, fallback = null) {
 function set(key, value) {
   try {
     if (!STORAGE_OK) { memoryFallback[key] = value; return true; }
-    localStorage.setItem(key, JSON.stringify(value));
+    backend.setItem(key, JSON.stringify(value));
     return true;
   } catch (e) {
     console.warn('[storage] set failed for', key, e);
@@ -71,7 +90,7 @@ function set(key, value) {
 function remove(key) {
   try {
     if (!STORAGE_OK) { delete memoryFallback[key]; return; }
-    localStorage.removeItem(key);
+    backend.removeItem(key);
   } catch (e) { /* noop */ }
 }
 
@@ -243,7 +262,7 @@ const Storage = {
 
   /* -------------------------- Schema / user tagging -------------------------- */
 
-  getMeta() { return get(KEYS.meta, { schemaVersion: CURRENT_SCHEMA_VERSION, userId: null, lastSyncedAt: null, guestConfirmed: false, onboardingDone: false }); },
+  getMeta() { return get(KEYS.meta, { schemaVersion: CURRENT_SCHEMA_VERSION, userId: null, lastSyncedAt: null, onboardingDone: false }); },
   saveMeta(partial) { const merged = { ...Storage.getMeta(), ...partial }; set(KEYS.meta, merged); return merged; },
 
   /** Which user's data is currently cached locally (null = guest/unclaimed). Used to detect "existing device data" on first login. */
@@ -267,6 +286,64 @@ const Storage = {
       }
     }
     Storage.saveMeta({ schemaVersion: version });
+  },
+
+  /* -------------------------- Guest session backend -------------------------- */
+
+  /** True if this browser tab currently has an active (unclosed) guest session. */
+  isGuestSessionActive() {
+    if (!SESSION_STORAGE_OK) return false;
+    try { return window.sessionStorage.getItem(GUEST_SESSION_FLAG) === '1'; }
+    catch (e) { return false; }
+  },
+
+  /**
+   * Switches the active backend to sessionStorage and marks a guest session
+   * as active. Safe to call both when a guest first clicks "Continue as
+   * Guest" and on every later page load while that session is still active
+   * (e.g. a refresh) — migration only happens the first time. If this
+   * browser already has *unclaimed* guest data sitting in localStorage from
+   * before this backend split existed, that data is migrated into the
+   * session-scoped store first so it isn't silently orphaned, then removed
+   * from localStorage, since guest data is no longer meant to outlive the
+   * browser session.
+   */
+  enterGuestSession() {
+    if (!SESSION_STORAGE_OK) { backend = window.localStorage; return; }
+    if (!Storage.isGuestSessionActive()) {
+      const meta = get(KEYS.meta, {});
+      if (!meta.userId) {
+        Object.values(KEYS).forEach((key) => {
+          if (key === KEYS.meta) return;
+          const raw = window.localStorage.getItem(key);
+          if (raw !== null) window.sessionStorage.setItem(key, raw);
+        });
+        Object.values(KEYS).forEach((key) => { if (key !== KEYS.meta) window.localStorage.removeItem(key); });
+      }
+      try { window.sessionStorage.setItem(GUEST_SESSION_FLAG, '1'); } catch (e) { /* noop */ }
+    }
+    backend = window.sessionStorage;
+  },
+
+  /**
+   * Folds a guest session's sessionStorage data into the durable localStorage
+   * store, then clears the session-scoped copy and flag. Called once, right
+   * after a guest signs in during the same browser tab session (before
+   * syncManager's first-login merge runs), so the data they built up as a
+   * guest is treated as "existing local data to reconcile with the cloud"
+   * instead of being lost when the backend switches to localStorage.
+   */
+  claimGuestSessionForAccount() {
+    if (SESSION_STORAGE_OK && Storage.isGuestSessionActive()) {
+      Object.values(KEYS).forEach((key) => {
+        if (key === KEYS.meta) return;
+        const raw = window.sessionStorage.getItem(key);
+        if (raw !== null) window.localStorage.setItem(key, raw);
+      });
+      Object.values(KEYS).forEach((key) => window.sessionStorage.removeItem(key));
+      try { window.sessionStorage.removeItem(GUEST_SESSION_FLAG); } catch (e) { /* noop */ }
+    }
+    backend = window.localStorage;
   },
 
   raw: { get, set, remove },

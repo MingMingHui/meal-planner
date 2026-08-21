@@ -2,10 +2,14 @@
  * auth.js
  * ----------------------------------------------------------------------------
  * Purpose: Owns all authentication concerns — initializing the Supabase
- *          client, starting OAuth sign-in (Google/Microsoft), signing out,
- *          and exposing the current session/user plus an auth-state change
- *          subscription. Contains NO database/table logic — see
- *          cloudStorage.js for that.
+ *          client, starting OAuth sign-in (branded as "Continue with Gmail"
+ *          / "Continue with Outlook" in the UI, backed by the Google and
+ *          Microsoft/Azure AD OAuth providers respectively — Gmail and
+ *          Outlook are not themselves OAuth providers, so the underlying
+ *          `provider:` values passed to Supabase stay 'google' / 'azure'),
+ *          signing out, and exposing the current session/user plus an
+ *          auth-state change subscription. Contains NO database/table logic
+ *          — see cloudStorage.js for that.
  * Inputs:  CONFIG (config.js) for Supabase URL/anon key.
  * Outputs: A small public API used by app.js and syncManager.js.
  * Depends on: config.js, the Supabase JS UMD build loaded globally via CDN
@@ -65,8 +69,8 @@ function requireClient() {
   if (!client) throw new Error('Cloud sign-in is not configured for this deployment. See README → Authentication Setup.');
 }
 
-/** Starts the Google OAuth sign-in flow. Redirects the browser away and back. */
-export async function signInWithGoogle() {
+/** Starts the "Continue with Gmail" flow — Google OAuth under the hood. Redirects the browser away and back. */
+export async function signInWithGmail() {
   requireClient();
   const { error } = await client.auth.signInWithOAuth({
     provider: 'google',
@@ -75,8 +79,8 @@ export async function signInWithGoogle() {
   if (error) throw new Error(humanizeAuthError(error));
 }
 
-/** Starts the Microsoft (Azure AD) OAuth sign-in flow. */
-export async function signInWithMicrosoft() {
+/** Starts the "Continue with Outlook" flow — Microsoft/Azure AD OAuth under the hood. */
+export async function signInWithOutlook() {
   requireClient();
   const { error } = await client.auth.signInWithOAuth({
     provider: 'azure',
@@ -105,16 +109,21 @@ export function listenToAuthChanges(callback) {
   return () => listeners.delete(callback);
 }
 
+/** Maps the raw Supabase OAuth provider id to the branded name shown in the UI. */
+const PROVIDER_DISPLAY_NAMES = { google: 'Gmail', azure: 'Outlook' };
+
 /** Extracts a friendly display profile from the Supabase user object. */
 export function getUserProfile() {
   if (!currentUser) return null;
   const meta = currentUser.user_metadata || {};
+  const provider = currentUser.app_metadata?.provider || 'unknown';
   return {
     id: currentUser.id,
     name: meta.full_name || meta.name || currentUser.email?.split('@')[0] || 'User',
     email: currentUser.email || '',
     avatarUrl: meta.avatar_url || meta.picture || '',
-    provider: currentUser.app_metadata?.provider || 'unknown',
+    provider,
+    providerLabel: PROVIDER_DISPLAY_NAMES[provider] || provider,
   };
 }
 
