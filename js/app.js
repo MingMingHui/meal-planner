@@ -23,7 +23,7 @@ import { renderPlannerView, renderRecipesView, buildLocalMealPlan } from './reci
 import { renderShoppingView } from './shopping.js';
 import { renderProgressView, getTodayCalories, getTodayWaterCups, addWaterCup, logCalories } from './progress.js';
 import {
-  initializeAuth, isCloudConfigured, signInWithGmail, signInWithOutlook, signOut,
+  initializeAuth, isCloudConfigured, getEnabledProviders, signInWithGmail, signInWithOutlook, signOut,
   isAuthenticated, getUserProfile, listenToAuthChanges,
 } from './auth.js';
 import { deleteUserData as deleteCloudData } from './cloudStorage.js';
@@ -91,6 +91,16 @@ function wireAuthScreenButtons(proceed) {
     gmailBtn.disabled = true;
     outlookBtn.disabled = true;
     note.textContent = 'Cloud sign-in isn\u2019t configured for this deployment yet — continue as a guest. (See README → Authentication Setup to enable Gmail/Outlook sign-in.)';
+  } else {
+    getEnabledProviders().then(({ google, azure }) => {
+      const disabledLabels = [];
+      if (!google) { gmailBtn.disabled = true; disabledLabels.push('Gmail'); }
+      if (!azure) { outlookBtn.disabled = true; disabledLabels.push('Outlook'); }
+      if (disabledLabels.length) {
+        const verb = disabledLabels.length > 1 ? 'are not' : 'is not';
+        note.textContent = disabledLabels.join(' and ') + ' sign-in ' + verb + ' enabled for this deployment yet. Continue as a guest, or see README Authentication Setup.';
+      }
+    });
   }
 
   gmailBtn.addEventListener('click', async () => {
@@ -102,9 +112,14 @@ function wireAuthScreenButtons(proceed) {
     catch (err) { note.textContent = err.message; toast(err.message, 'error', 5000); }
   });
   guestBtn.addEventListener('click', () => {
-    Storage.enterGuestSession();
-    renderGuestBanner();
+    // proceed() (the actual auth-screen -> app transition) must never be
+    // blocked by best-effort session bookkeeping: if either call below
+    // throws (e.g. sessionStorage restricted by a browser/enterprise
+    // policy), the guest can still get into the app - the session-scoping
+    // just degrades instead of silently eating the click.
+    try { Storage.enterGuestSession(); } catch (err) { console.error('[app] enterGuestSession failed', err); }
     proceed();
+    try { renderGuestBanner(); } catch (err) { console.error('[app] renderGuestBanner failed', err); }
   });
 }
 
@@ -121,8 +136,8 @@ async function handlePostAuth() {
     // checkFirstLoginState() below sees it as "existing local data" to
     // reconcile with the cloud instead of losing it when the backend
     // switches away from sessionStorage.
-    Storage.claimGuestSessionForAccount();
-    renderGuestBanner();
+    try { Storage.claimGuestSessionForAccount(); } catch (err) { console.error('[app] claimGuestSessionForAccount failed', err); }
+    try { renderGuestBanner(); } catch (err) { console.error('[app] renderGuestBanner failed', err); }
   }
   try {
     const state = await checkFirstLoginState();
@@ -979,8 +994,10 @@ async function initApp() {
   initMobileNav();
   // Point Storage at the session-scoped backend as early as possible if this
   // tab already has a guest session running (e.g. a page refresh) — must
-  // happen before runMigrations()/loadAppData() touch anything.
-  if (Storage.isGuestSessionActive()) Storage.enterGuestSession();
+  // happen before runMigrations()/loadAppData() touch anything. Wrapped so a
+  // storage-access failure here can never abort the rest of startup.
+  try { if (Storage.isGuestSessionActive()) Storage.enterGuestSession(); }
+  catch (err) { console.error('[app] guest session bootstrap check failed', err); }
   Storage.runMigrations();
 
   registerView('dashboard', renderDashboard);

@@ -176,6 +176,12 @@ This section is the step-by-step for enabling "Continue with Gmail" / "Continue 
 
 > **Branding note:** the buttons read "Continue with Gmail" and "Continue with Outlook," but Gmail and Outlook are mail brands, not OAuth providers in their own right. Under the hood, "Continue with Gmail" authenticates via the standard **Google** OAuth provider (any Google/Gmail account), and "Continue with Outlook" authenticates via the standard **Microsoft/Azure AD** OAuth provider (any Microsoft/Outlook account). So everywhere below that says "Google" or "Azure," that's the underlying provider you're configuring in Supabase/Google Cloud Console/Azure Portal — none of those third-party consoles know about the "Gmail"/"Outlook" labels, which are purely a frontend (`index.html` / `js/auth.js`) presentation choice.
 
+> **If you see "Unsupported provider: provider is not enabled"** when clicking Gmail/Outlook: this is Supabase's own server response, not an app bug — it means `SUPABASE_URL`/`SUPABASE_ANON_KEY` in `config.js` point at a real project, but the Google and/or Azure provider hasn't been switched on in that project's **Authentication → Providers** page yet (steps 3–4 below). You can check this yourself for any deployment with:
+> ```bash
+> curl "https://<your-project-ref>.supabase.co/auth/v1/settings" -H "apikey: <your-anon-key>"
+> ```
+> and looking at `external.google` / `external.azure` in the response. The app now does this check itself on page load (`auth.js`'s `getEnabledProviders()`) and disables whichever button isn't enabled instead of letting the click navigate the tab away to Supabase's raw error response — but until a provider is actually turned on here, its button stays disabled and "Continue as Guest" is the only way in.
+
 ### 1. Create a Supabase project
 
 1. Go to [supabase.com](https://supabase.com) and create a free account.

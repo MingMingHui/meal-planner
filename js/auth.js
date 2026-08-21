@@ -69,6 +69,41 @@ function requireClient() {
   if (!client) throw new Error('Cloud sign-in is not configured for this deployment. See README → Authentication Setup.');
 }
 
+/**
+ * Best-effort check of which OAuth providers are actually turned on for this
+ * Supabase project (Authentication → Providers in the dashboard).
+ * isCloudConfigured() only confirms a URL/anon key are present in
+ * config.js — it says nothing about whether the Google/Azure providers
+ * themselves have been enabled with real OAuth app credentials there.
+ * Without this check, clicking a disabled provider's button makes
+ * signInWithOAuth() perform a full top-level browser navigation to
+ * Supabase's /authorize endpoint, which — for a disabled provider —
+ * responds with a raw 400 JSON error ("Unsupported provider: provider is
+ * not enabled") instead of anything rendered by this app; that response
+ * can't be caught or humanized client-side once the navigation has already
+ * left the page, so the only real fix is to not attempt it and tell the
+ * user up front instead. Fails open (reports everything enabled) on any
+ * network error, so a flaky check never blocks a sign-in attempt that
+ * might otherwise work.
+ */
+export async function getEnabledProviders() {
+  if (!isCloudConfigured()) return { google: false, azure: false };
+  try {
+    const res = await fetch(`${CONFIG.SUPABASE_URL}/auth/v1/settings`, {
+      headers: { apikey: CONFIG.SUPABASE_ANON_KEY },
+    });
+    if (!res.ok) return { google: true, azure: true };
+    const settings = await res.json();
+    return {
+      google: !!settings?.external?.google,
+      azure: !!settings?.external?.azure,
+    };
+  } catch (err) {
+    console.warn('[auth] could not check which providers are enabled — assuming enabled', err);
+    return { google: true, azure: true };
+  }
+}
+
 /** Starts the "Continue with Gmail" flow — Google OAuth under the hood. Redirects the browser away and back. */
 export async function signInWithGmail() {
   requireClient();
