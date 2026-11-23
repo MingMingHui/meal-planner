@@ -248,12 +248,12 @@ function toggleUserDropdown(profile) {
         <div class="um-email">${escapeHTML(profile.email)}</div>
         <div class="small" style="margin-top:4px;">Signed in with ${escapeHTML(profile.providerLabel)}</div>
       </div>
-      <button class="um-item" data-action="profile">${ICONS.profile} My Profile</button>
-      <button class="um-item" data-action="sync">${ICONS.progress} Cloud Sync</button>
-      <button class="um-item" data-action="export">${ICONS.shopping} Export My Data</button>
-      <button class="um-item" data-action="pdf">${ICONS.sparkle} Download PDF</button>
-      <button class="um-item" data-action="settings">${ICONS.settings} Settings</button>
-      <button class="um-item danger" data-action="signout">${ICONS.close} Sign Out</button>
+      <button class="um-item" data-action="profile">My Profile</button>
+      <button class="um-item" data-action="sync">Cloud Sync</button>
+      <button class="um-item" data-action="export">Export My Data</button>
+      <button class="um-item" data-action="pdf">Download PDF</button>
+      <button class="um-item" data-action="settings">Settings</button>
+      <button class="um-item danger" data-action="signout">Sign Out</button>
     </div>
   `);
   document.getElementById('user-menu').appendChild(dropdown);
@@ -273,15 +273,15 @@ function toggleUserDropdown(profile) {
 function toggleGuestDropdown() {
   if (document.getElementById('user-menu-dropdown')) { closeDropdown(); return; }
   const cloudNote = isCloudConfigured()
-    ? `<button class="um-item" data-action="google">${ICONS.sparkle} Continue with Gmail</button><button class="um-item" data-action="microsoft">${ICONS.sparkle} Continue with Outlook</button>`
+    ? `<button class="um-item" data-action="google">Continue with Gmail</button><button class="um-item" data-action="microsoft">Continue with Outlook</button>`
     : `<p class="small" style="padding:8px 10px;">Cloud sign-in isn't configured for this deployment.</p>`;
   const dropdown = el(`
     <div class="user-menu-dropdown" id="user-menu-dropdown">
       <div class="um-header"><div class="um-name">Guest</div><div class="um-email">Data lives only in this browser session</div></div>
       ${cloudNote}
-      <button class="um-item" data-action="export">${ICONS.shopping} Export My Data</button>
-      <button class="um-item" data-action="pdf">${ICONS.sparkle} Download PDF</button>
-      <button class="um-item" data-action="settings">${ICONS.settings} Settings</button>
+      <button class="um-item" data-action="export">Export My Data</button>
+      <button class="um-item" data-action="pdf">Download PDF</button>
+      <button class="um-item" data-action="settings">Settings</button>
     </div>
   `);
   document.getElementById('user-menu').appendChild(dropdown);
