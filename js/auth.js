@@ -42,7 +42,13 @@ export async function initializeAuth() {
 
   try {
     client = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      auth: {
+        persistSession: true, autoRefreshToken: true, detectSessionInUrl: true,
+        // The Android app finishes OAuth via a deep link that hands back a
+        // one-time ?code= (see mobile/src/native-bridge.js), which requires
+        // the PKCE flow. The web keeps supabase-js's default flow.
+        ...(nativeShell() ? { flowType: 'pkce' } : {}),
+      },
     });
 
     const { data, error } = await client.auth.getSession();
@@ -104,24 +110,36 @@ export async function getEnabledProviders() {
   }
 }
 
-/** Starts the "Continue with Gmail" flow — Google OAuth under the hood. Redirects the browser away and back. */
-export async function signInWithGmail() {
+/**
+ * The Android app's native helpers (mobile/src/native-bridge.js), or null in
+ * a normal browser. Google refuses OAuth inside embedded WebViews, so in the
+ * app the provider page opens in the system browser instead of navigating
+ * this WebView; the deep link back into the app lands on index.html with the
+ * same ?code= a web redirect would, so the rest of the flow is unchanged.
+ */
+function nativeShell() {
+  return window.HMPANative?.isNative ? window.HMPANative : null;
+}
+
+async function startOAuth(provider, extraOptions = {}) {
   requireClient();
-  const { error } = await client.auth.signInWithOAuth({
-    provider: 'google',
-    options: { redirectTo: CONFIG.REDIRECT_URL },
+  const native = nativeShell();
+  const { data, error } = await client.auth.signInWithOAuth({
+    provider,
+    options: { redirectTo: CONFIG.REDIRECT_URL, ...extraOptions, ...(native ? { skipBrowserRedirect: true } : {}) },
   });
   if (error) throw new Error(humanizeAuthError(error));
+  if (native) await native.openAuthUrl(data.url);
+}
+
+/** Starts the "Continue with Gmail" flow — Google OAuth under the hood. Redirects the browser away and back. */
+export async function signInWithGmail() {
+  await startOAuth('google');
 }
 
 /** Starts the "Continue with Outlook" flow — Microsoft/Azure AD OAuth under the hood. */
 export async function signInWithOutlook() {
-  requireClient();
-  const { error } = await client.auth.signInWithOAuth({
-    provider: 'azure',
-    options: { redirectTo: CONFIG.REDIRECT_URL, scopes: 'email' },
-  });
-  if (error) throw new Error(humanizeAuthError(error));
+  await startOAuth('azure', { scopes: 'email' });
 }
 
 /** Signs the user out. Local and cloud data are left untouched. */
@@ -129,6 +147,17 @@ export async function signOut() {
   if (!client) { currentUser = null; currentSession = null; return; }
   const { error } = await client.auth.signOut();
   if (error) throw new Error(humanizeAuthError(error));
+  currentUser = null;
+  currentSession = null;
+}
+
+/**
+ * Clears this device's session after the account itself has been deleted
+ * server-side (see cloudStorage.deleteAccount). A global sign-out would fail
+ * there — the user no longer exists — so only the local session is dropped.
+ */
+export async function signOutLocally() {
+  if (client) await client.auth.signOut({ scope: 'local' }).catch(() => {});
   currentUser = null;
   currentSession = null;
 }

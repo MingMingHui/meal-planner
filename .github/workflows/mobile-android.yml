@@ -1,0 +1,142 @@
+# Android app CI — lint, type check, tests, debug APK, and (when signing
+# secrets exist) a signed, verified release AAB. See
+# docs/mobile-deployment/README.md → "CI/CD" for the secrets to configure.
+name: Mobile (Android)
+
+on:
+  push:
+    branches: [main]
+    paths: ['mobile/**', 'js/**', 'css/**', 'data/**', 'index.html', 'dashboard.html', 'supabase/**', '.github/workflows/mobile-android.yml']
+  pull_request:
+    paths: ['mobile/**', 'js/**', 'css/**', 'data/**', 'index.html', 'dashboard.html', 'supabase/**', '.github/workflows/mobile-android.yml']
+  workflow_dispatch:
+    inputs:
+      build_release:
+        description: 'Build a signed release AAB (needs signing secrets)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-android-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: mobile
+
+jobs:
+  checks:
+    name: Lint, type check, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+  android-debug:
+    name: Debug APK
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - run: npm ci
+      - run: npm run build:web
+      - run: npx cap sync android
+      - run: node scripts/gradle.mjs assembleDebug lintDebug assembleDebugAndroidTest --console=plain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
+  android-release:
+    name: Signed release AAB
+    needs: checks
+    # Only on main / manual runs — never on pull requests (secrets are not
+    # exposed to PRs from forks, and release builds should come from main).
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_release)
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+      PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+      # Strictly increasing for every CI build; offset keeps it above any
+      # locally built versionCode in mobile/version.json.
+      ANDROID_VERSION_CODE: ${{ github.run_number }}0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check signing secrets are configured
+        id: secrets
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE" ] || [ -z "$SUPABASE_URL" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Release AAB skipped — set the ANDROID_KEYSTORE_* secrets and SUPABASE_URL/SUPABASE_ANON_KEY variables in the 'production' environment (docs/mobile-deployment/README.md → CI/CD)."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.secrets.outputs.available == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        if: steps.secrets.outputs.available == 'true'
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+        if: steps.secrets.outputs.available == 'true'
+      - name: Restore upload keystore
+        if: steps.secrets.outputs.available == 'true'
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/upload-keystore.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/upload-keystore.jks" >> "$GITHUB_ENV"
+      - name: Build release AAB
+        if: steps.secrets.outputs.available == 'true'
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          npm ci
+          npm run android:release -- --console=plain
+          npm run verify:aab
+      - name: Remove keystore
+        if: always() && steps.secrets.outputs.available == 'true'
+        run: rm -f "$RUNNER_TEMP/upload-keystore.jks"
+      - uses: actions/upload-artifact@v4
+        if: steps.secrets.outputs.available == 'true'
+        with:
+          name: app-release-aab
+          path: |
+            mobile/android/app/build/outputs/bundle/release/app-release.aab
+            mobile/android/app/build/outputs/mapping/release/mapping.txt
+          retention-days: 30

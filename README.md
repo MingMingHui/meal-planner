@@ -21,7 +21,9 @@ Built with a Malaysian-first food database (nasi lemak, laksa, roti canai, and m
 - [How AI Integration Works](#how-ai-integration-works)
 - [Supported AI Providers](#supported-ai-providers)
 - [Security](#security)
+- [Delete Account](#delete-account)
 - [Privacy](#privacy)
+- [Mobile App (Android)](#mobile-app-android)
 - [Screenshots](#screenshots)
 - [Testing Checklist](#testing-checklist)
 - [Roadmap](#roadmap)
@@ -107,6 +109,7 @@ health-meal-planner/
 │
 ├── index.html              # login/guest-choice page (see authGate.js) — separate page, not a div toggle
 ├── dashboard.html          # app shell page (see app.js) — everything after sign-in/guest entry
+├── account-deletion.html   # public "how to delete your account" page (Google Play requirement)
 ├── README.md
 ├── LICENSE
 │
@@ -133,6 +136,7 @@ health-meal-planner/
 │   ├── ai.js                    # swappable AI provider abstraction
 │   ├── pdf.js                  # in-browser PDF report generation (jsPDF + autoTable)
 │   ├── utils.js               # small shared date/merge helpers
+│   ├── platform.js           # file saving that also works inside the Android app's WebView
 │   └── share.js               # Web Share API + social fallback buttons
 │
 ├── assets/
@@ -145,9 +149,13 @@ health-meal-planner/
 │
 ├── supabase/
 │   ├── schema.sql             # tables, keys, indexes, triggers
-│   └── policies.sql           # Row Level Security policies
+│   ├── policies.sql           # Row Level Security policies
+│   └── delete_account.sql     # delete_my_account() — lets a user delete their own account
+│
+├── mobile/                    # Android app (Capacitor) packaging this same web app — see docs/mobile-deployment/
 │
 └── docs/
+    └── mobile-deployment/     # Android build, Google Play release, compliance and testing guides
 ```
 
 ## Installation
@@ -230,6 +238,8 @@ Open **SQL Editor** in Supabase, paste the contents of `supabase/schema.sql`, an
 
 In the same SQL Editor, paste the contents of `supabase/policies.sql` and run it. This enables Row Level Security and creates the "users can only access their own rows" policies on every table — **do not skip this step**, it's what makes it safe to use the public anon key in the browser.
 
+Then paste and run `supabase/delete_account.sql`, which enables **Settings → Delete Account** (see [Delete Account](#delete-account)).
+
 ### 8. Configure the frontend
 
 Edit `js/config.js`:
@@ -308,14 +318,29 @@ All are free-tier friendly, open-source-model providers — never OpenAI, never 
 - `js/config.js` only ever holds the anon key. Do not paste a `service_role` key into `index.html`, any `.js` file, or a committed `.env` — this repository has no server, so there is nowhere safe to use a service-role key at all.
 - AI provider API keys entered by users stay in `localStorage` only; they are never sent to Supabase or included in JSON export.
 - All Supabase tables have Row Level Security enabled with policies scoped to `auth.uid() = user_id` — enforced by PostgreSQL itself, not by client-side JavaScript.
-- Destructive actions (Delete Local Data, Delete Cloud Data) always show a confirmation dialog first, and only delete the scope they claim to (local-only vs cloud-only never touches the other).
-- **Account deletion**: fully deleting a user's Supabase Auth identity requires the `service_role` key, which by design cannot run from this static frontend. **Delete Cloud Data** removes every row this app wrote for the user, which in practice erases all their personal data; the underlying auth identity record itself would need to be removed by a project admin from the Supabase dashboard, or via a server-side function you control outside this repo. The app does not claim to delete the account itself — only the data.
+- Destructive actions (Delete Local Data, Delete Cloud Data, Delete Account) always ask for confirmation first, and only delete the scope they claim to (local-only vs cloud-only never touches the other; Delete Account removes both, by design).
+- **Account deletion** runs through the `delete_my_account()` database function (`supabase/delete_account.sql`), not a `service_role` key. It is `SECURITY DEFINER`, takes no arguments, deletes only `auth.uid()` — the caller's own verified id — and is executable by the `authenticated` role only. See [Delete Account](#delete-account).
+
+## Delete Account
+
+Signed-in users can permanently delete their account from **Settings → Your data → Delete Account** (they must type `DELETE` to confirm). This:
+
+1. Calls `delete_my_account()`, which deletes the user's `auth.users` row. Every table in `supabase/schema.sql` references `auth.users(id) ON DELETE CASCADE`, so all of the user's cloud rows are removed in the same transaction.
+2. Clears this device's local copy of the data and signs out locally.
+
+**Setup:** run `supabase/delete_account.sql` once in the Supabase SQL Editor (after `schema.sql` and `policies.sql`). Until it has been run, the button shows an error explaining that the server side isn't set up.
+
+`account-deletion.html` is the public page describing this process, for app stores that require a web link (Google Play's "Delete account URL"). Other devices that were signed in keep their local copy until it is cleared there or the app is uninstalled.
 
 ## Privacy
 
 - **Guest users**: data is stored only in this browser tab's session storage — nothing leaves the device, and it is cleared automatically once the browser is closed. See [Guest Sessions](#guest-sessions).
 - **Authenticated users**: data is additionally synchronized to the Supabase cloud database, protected by Row Level Security so only that account can read or write it.
 - **AI features**: using the Recipe Generator, AI Meal Plan, or AI Coach sends relevant profile details (e.g. weight, goals, allergies) to the AI provider you configured, directly from your browser. This data is not "100% private" once sent to that third party — review your chosen provider's own privacy policy.
+
+## Mobile App (Android)
+
+`mobile/` packages this exact web app as an Android app with [Capacitor](https://capacitorjs.com) for Google Play, with the architecture kept ready for the Apple App Store and Huawei AppGallery later. The web app stays the single source of truth: the mobile build copies `index.html`, `dashboard.html`, `css/`, `js/` and `data/` and adds only a native bridge (OAuth through the system browser, file saving, the Android back button). Start at [docs/mobile-deployment/README.md](docs/mobile-deployment/README.md).
 
 ## Screenshots
 
@@ -391,13 +416,12 @@ _placeholder — add screenshots of the Dashboard, Meal Planner, Recipe Generato
 - Nutrition figures are estimates based on standard food composition data, not medical-grade measurements — the app is not a substitute for professional dietary or medical advice.
 - Some AI providers may rate-limit free-tier keys; the app surfaces this as a clear error rather than failing silently.
 - Imperial units are label-only in this version; all calculations remain in metric.
-- Full Supabase Auth account deletion (removing the identity record itself, not just its data) cannot be performed safely from this static frontend — see [Security](#security).
 - Recipe history sync (`recipes` table) is append-only by design; it doesn't currently sync deletions of individual saved recipes.
 
 ## Contribution Guide
 
 1. Fork the repository and create a feature branch.
-2. Keep the "no build step" constraint — plain HTML/CSS/ES Modules only.
+2. Keep the "no build step" constraint for the web app — plain HTML/CSS/ES Modules only. (The Android app in `mobile/` has its own build that copies the web app as-is; run `cd mobile && npm run check` after changing anything in `js/`.)
 3. Every new module should start with the same header-comment convention (Purpose / Inputs / Outputs / Depends on) used throughout `js/`.
 4. Use `escapeHTML()` from `ui.js` for any user-provided string inserted into the DOM.
 5. Any new Supabase table needs a matching Row Level Security policy in `supabase/policies.sql` — never ship a table without one.

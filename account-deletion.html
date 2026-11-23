@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Delete your account — Health Meal Planning Agent</title>
+<meta name="description" content="How to delete your Health Meal Planning Agent account and the data associated with it." />
+<meta name="theme-color" content="#2F5233" />
+<link rel="stylesheet" href="./css/variables.css" />
+<link rel="stylesheet" href="./css/styles.css" />
+<style>
+  .deletion-page { max-width: 720px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .deletion-page h1 { font-size: 1.6rem; margin-bottom: var(--space-3); }
+  .deletion-page h2 { font-size: 1.1rem; margin-top: var(--space-5); }
+  .deletion-page li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<!--
+  Public account-deletion page required by Google Play's User Data policy
+  ("Delete account URL" in Play Console → App content → Data safety).
+  Every statement here describes how the app actually behaves today — see
+  js/app.js (Settings → Delete Account) and supabase/delete_account.sql.
+  TODO (owner): add a support contact (email or form) for users who can no
+  longer sign in, once one exists. Do not publish an address that isn't monitored.
+-->
+<main class="deletion-page">
+  <h1>Delete your Health Meal Planning Agent account</h1>
+  <p>You can delete your account and its data yourself, at any time, from the Android app or from this website.</p>
+
+  <h2>Steps</h2>
+  <ol>
+    <li>Open the app (or <a href="./index.html">this website</a>) and sign in with the same Gmail or Outlook account you used before.</li>
+    <li>Go to <b>Settings</b> → <b>Your data</b>.</li>
+    <li>Tap <b>Delete Account</b> and type <b>DELETE</b> to confirm.</li>
+  </ol>
+
+  <h2>What is deleted</h2>
+  <ul>
+    <li>Your sign-in account.</li>
+    <li>All data stored in your account in the cloud: profile, meal plans, saved recipes, shopping lists, progress entries (weight, calories, water), achievements and app settings.</li>
+    <li>The copy of that data on the device you delete from.</li>
+  </ul>
+  <p>Deletion is immediate and permanent; it cannot be undone. If you sign in again later with the same email address, you start with a new, empty account.</p>
+
+  <h2>What is not affected</h2>
+  <ul>
+    <li>Files you exported yourself (JSON, CSV, PDF) stay wherever you saved them.</li>
+    <li>Data on other devices that are signed in to the account remains on those devices until you clear it there (Settings → <b>Delete Local Data</b>) or uninstall the app.</li>
+    <li>Information you chose to send to an AI provider (when using the Recipe Generator, AI Meal Plan or AI Coach with your own API key) is held by that provider under its own privacy policy.</li>
+  </ul>
+
+  <h2>Guest users</h2>
+  <p>Guest sessions have no account. Guest data exists only on your device for the current session and is removed when the session ends, or immediately with Settings → <b>Delete Local Data</b>.</p>
+</main>
+</body>
+</html>

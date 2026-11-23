@@ -1,0 +1,74 @@
+/*
+ * mobile.css
+ * ----------------------------------------------------------------------------
+ * Loaded only by the packaged Android app (injected by scripts/build-web.mjs
+ * after css/styles.css). Every rule is scoped to html.native-app, which
+ * src/native-bridge.js adds at startup, so nothing here can affect the web.
+ *
+ * Safe areas: Android 15+ draws apps edge-to-edge. Capacitor's SystemBars
+ * plugin ("insetsHandling": "css") injects --safe-area-inset-* variables;
+ * env(safe-area-inset-*) is used as well for newer WebViews.
+ * ----------------------------------------------------------------------------
+ */
+
+html.native-app {
+  --sa-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+  --sa-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
+  --sa-left: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+  --sa-right: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+html.native-app body {
+  padding-left: var(--sa-left);
+  padding-right: var(--sa-right);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Text the user types or may want to copy stays selectable. */
+html.native-app input,
+html.native-app textarea,
+html.native-app .chat-bubble,
+html.native-app .recipe-body,
+html.native-app p {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* ---------- System bar insets ---------- */
+html.native-app .topbar {
+  padding-top: var(--sa-top);
+  height: calc(var(--header-h) + var(--sa-top));
+}
+html.native-app .sidebar { padding-top: calc(var(--space-5) + var(--sa-top)); padding-bottom: calc(var(--space-3) + var(--sa-bottom)); }
+html.native-app .auth-screen { padding-top: calc(var(--space-5) + var(--sa-top)); padding-bottom: calc(var(--space-5) + var(--sa-bottom)); }
+html.native-app #toast-region { bottom: calc(24px + var(--sa-bottom)); }
+html.native-app .modal { max-height: calc(85vh - var(--sa-top) - var(--sa-bottom)); }
+
+@media (max-width: 860px) {
+  html.native-app .tabbar {
+    height: calc(var(--tabbar-h) + var(--sa-bottom));
+    padding-bottom: calc(6px + var(--sa-bottom));
+  }
+  html.native-app .view { padding-bottom: calc(var(--tabbar-h) + var(--space-5) + var(--sa-bottom)); }
+  html.native-app #toast-region { bottom: calc(var(--tabbar-h) + 16px + var(--sa-bottom)); }
+}
+
+/* ---------- Touch targets (≥ 48dp, Android accessibility guidance) ---------- */
+html.native-app .um-item,
+html.native-app .nav-btn,
+html.native-app .tabbar button,
+html.native-app .btn,
+html.native-app .icon-btn { min-height: 48px; }
+html.native-app .btn-sm { min-height: 44px; }
+html.native-app .icon-btn { min-width: 48px; }
+html.native-app input,
+html.native-app select,
+html.native-app textarea { font-size: 16px; min-height: 44px; } /* 16px stops zoom-on-focus */
+
+/* ---------- Browser-only features ---------- */
+/* Android WebViews cannot open print dialogs; the share/PDF/text export
+   buttons beside it cover the same need. */
+html.native-app #print-btn { display: none; }

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Health Meal Planning Agent</string>
+    <string name="title_activity_main">Health Meal Planning Agent</string>
+    <string name="package_name">com.ch2digital.mealplannerai</string>
+    <string name="custom_url_scheme">com.ch2digital.mealplannerai</string>
+</resources>

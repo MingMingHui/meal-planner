@@ -1,0 +1,15 @@
+node_modules/
+www/
+coverage/
+
+# Environment files (see .env.example). Only the example is committed.
+.env
+.env.*
+!.env.example
+
+# Signing material — never commit
+*.jks
+*.keystore
+keystore.properties
+*.p12
+*.pem

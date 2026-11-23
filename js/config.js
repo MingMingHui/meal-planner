@@ -13,16 +13,28 @@
  *          must only ever be used from a trusted server, which this static
  *          GitHub Pages app does not have.
  *
- * Inputs:  none — static values.
+ * Inputs:  none — static values, optionally overridden by
+ *          window.__HMPA_CONFIG__ (see "Runtime overrides" below).
  * Outputs: CONFIG object consumed by auth.js / cloudStorage.js.
  * Depends on: nothing.
  * ----------------------------------------------------------------------------
+ * Runtime overrides
+ * ----------------------------------------------------------------------------
+ * The plain web deployment never defines window.__HMPA_CONFIG__, so the
+ * values below are used as-is. The Android app (mobile/) packages these same
+ * files and injects a generated runtime-config.js that sets it, so each
+ * mobile environment (development / staging / production) can point at its
+ * own Supabase project and use a native OAuth redirect URL — see
+ * mobile/scripts/build-web.mjs and docs/mobile-deployment/README.md.
+ * ----------------------------------------------------------------------------
  */
+
+const RUNTIME = (typeof window !== 'undefined' && window.__HMPA_CONFIG__) || {};
 
 const CONFIG = {
   // From Supabase Dashboard → Project Settings → API
-  SUPABASE_URL: 'https://bkrgxmjsyghzrostfvrt.supabase.co',
-  SUPABASE_ANON_KEY: 'sb_publishable_idzkrVgI4E4x5BXI35ifLA_fI9zA1Lj',
+  SUPABASE_URL: RUNTIME.SUPABASE_URL ?? 'https://bkrgxmjsyghzrostfvrt.supabase.co',
+  SUPABASE_ANON_KEY: RUNTIME.SUPABASE_ANON_KEY ?? 'sb_publishable_idzkrVgI4E4x5BXI35ifLA_fI9zA1Lj',
 
   // App metadata used in PDF exports and the auth screen.
   APP_NAME: 'meal-planner',
@@ -57,6 +69,12 @@ function computeBasePath() {
 }
 
 CONFIG.BASE_PATH = computeBasePath();
-CONFIG.REDIRECT_URL = `${window.location.origin}${CONFIG.BASE_PATH}`;
+// In the Android app the page is served from https://localhost, which an
+// OAuth provider can't redirect back to — the app supplies its custom-scheme
+// deep link (e.g. com.ch2digital.mealplannerai://auth-callback) instead.
+CONFIG.REDIRECT_URL = RUNTIME.REDIRECT_URL || `${window.location.origin}${CONFIG.BASE_PATH}`;
+
+/** Public link used when sharing content; null means "this page's own URL". */
+CONFIG.PUBLIC_URL = RUNTIME.PUBLIC_URL || null;
 
 export default CONFIG;

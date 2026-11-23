@@ -209,3 +209,20 @@ export async function deleteUserData() {
   if (failed.length) throw new Error(`Some cloud data could not be deleted: ${failed.map(f => f.error.message).join('; ')}`);
   return true;
 }
+
+/**
+ * Permanently deletes the signed-in user's account itself (their sign-in
+ * identity), which cascades to every cloud row they own. Irreversible.
+ * Requires supabase/delete_account.sql to have been run on the project.
+ */
+export async function deleteAccount() {
+  userId(); // throws if not signed in
+  const { error } = await client().rpc('delete_my_account');
+  if (error) {
+    if (error.code === 'PGRST202' || /could not find the function/i.test(error.message || '')) {
+      throw new Error('Account deletion is not set up on the server yet. Run supabase/delete_account.sql in your Supabase project (see README → Delete Account).');
+    }
+    throw new Error(`Account deletion failed: ${error.message}`);
+  }
+  return true;
+}

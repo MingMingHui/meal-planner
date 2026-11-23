@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brand colours from css/variables.css (primary / accent tokens). -->
+<resources>
+    <color name="colorPrimary">#2F5233</color>
+    <color name="colorPrimaryDark">#2F5233</color>
+    <color name="colorAccent">#E08A1E</color>
+    <color name="splash_background">#2F5233</color>
+</resources>

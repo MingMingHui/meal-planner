@@ -12,8 +12,9 @@
  */
 
 import { ICONS, toast } from './ui.js';
+import CONFIG from './config.js';
 
-export function shareContent(container, { title = 'Health Meal Planning Agent', text = '', url = window.location.href } = {}) {
+export function shareContent(container, { title = 'Health Meal Planning Agent', text = '', url = CONFIG.PUBLIC_URL || window.location.href } = {}) {
   if (!container) return;
   container.innerHTML = '';
 

@@ -28,10 +28,11 @@ import { renderPlannerView, renderRecipesView, buildLocalMealPlan } from './reci
 import { renderShoppingView } from './shopping.js';
 import { renderProgressView, getTodayCalories, getTodayWaterCups, addWaterCup, logCalories } from './progress.js';
 import {
-  initializeAuth, isCloudConfigured, signInWithGmail, signInWithOutlook, signOut,
+  initializeAuth, isCloudConfigured, signInWithGmail, signInWithOutlook, signOut, signOutLocally,
   isAuthenticated, getUserProfile, listenToAuthChanges,
 } from './auth.js';
-import { deleteUserData as deleteCloudData } from './cloudStorage.js';
+import { deleteUserData as deleteCloudData, deleteAccount } from './cloudStorage.js';
+import { saveFile } from './platform.js';
 import { syncAll, getSyncStatus, onSyncStatusChange, syncAvailable, checkFirstLoginState, resolveFirstLogin, wireAutoSync } from './syncManager.js';
 import { exportCompleteReportPDF, exportProfilePDF } from './pdf.js';
 import CONFIG from './config.js';
@@ -378,11 +379,7 @@ function wireGuestExitReminder() {
 function exportJSONFile() {
   const payload = Storage.exportAll();
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = 'health-meal-planner-data.json';
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
+  saveFile(blob, 'health-meal-planner-data.json');
   toast('Data exported.', 'success');
 }
 
@@ -394,11 +391,7 @@ function exportCSVFile() {
   Object.entries(progress.waterLog || {}).forEach(([date, cups]) => rows.push(['water_cups', date, cups]));
   const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = 'health-meal-planner-progress.csv';
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
+  saveFile(blob, 'health-meal-planner-progress.csv');
   toast('Progress exported as CSV.', 'success');
 }
 
@@ -685,7 +678,11 @@ function renderSettingsView() {
           <button class="btn btn-danger" id="delete-local-btn">Delete Local Data</button>
           <button class="btn btn-danger" id="delete-cloud-btn" ${authed && isCloudConfigured() ? '' : 'disabled'}>Delete Cloud Data</button>
         </div>
-        ${authed ? `<p class="small" style="margin-top:10px;">Full account deletion (removing your sign-in identity itself) isn't something this static, backend-less app can safely perform from the browser — see README → Delete Account for the supported workflow via your Supabase project.</p>` : ''}
+        ${authed && isCloudConfigured() ? `
+          <div class="divider"></div>
+          <p class="small" style="margin-bottom:8px;"><b>Delete account</b> — permanently deletes your sign-in account and all of its cloud data, and clears this device's copy. You can still sign in again later with the same Gmail/Outlook address, but you will start with an empty account.</p>
+          <button class="btn btn-danger" id="delete-account-btn">Delete Account</button>
+        ` : ''}
       </div>
 
       <div class="g-12 card">
@@ -774,6 +771,24 @@ function renderSettingsView() {
       renderSettingsView();
     } catch (err) {
       toast(err.message || 'Could not delete cloud data.', 'error');
+    }
+  });
+
+  container.querySelector('#delete-account-btn')?.addEventListener('click', async (e) => {
+    const typed = window.prompt('This permanently deletes your account and ALL of its cloud data, and clears the data on this device. It cannot be undone.\n\nType DELETE to confirm.');
+    if (typed === null) return;
+    if (typed.trim().toUpperCase() !== 'DELETE') { toast('Account not deleted — confirmation text did not match.', 'default', 4000); return; }
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      await deleteAccount();
+      Storage.clearLocalData();
+      await signOutLocally();
+      toast('Your account has been deleted.', 'success');
+      setTimeout(() => window.location.replace('./index.html'), 900);
+    } catch (err) {
+      btn.disabled = false;
+      toast(err.message || 'Could not delete your account.', 'error', 6000);
     }
   });
 }

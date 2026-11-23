@@ -18,6 +18,7 @@ import { calcFullProfile } from './nutrition.js';
 import { toast } from './ui.js';
 import CONFIG from './config.js';
 import { getUserProfile } from './auth.js';
+import { isNativeApp, saveFile } from './platform.js';
 
 const BRAND = { primary: [47, 82, 51], accent: [224, 138, 30], ink: [28, 35, 29], muted: [110, 120, 110] };
 const DISCLAIMER = 'This report is for informational and meal-planning purposes only and is not medical advice. Consult a qualified healthcare professional for medical guidance.';
@@ -220,7 +221,8 @@ function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; 
 
 function download(doc, filename) {
   drawFooter(doc);
-  doc.save(filename);
+  if (isNativeApp()) saveFile(doc.output('blob'), filename);
+  else doc.save(filename);
   toast(`Downloaded ${filename}`, 'success');
 }
 
