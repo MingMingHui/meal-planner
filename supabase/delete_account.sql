@@ -9,7 +9,9 @@
 --          CASCADE, so deleting the auth user also deletes all of that
 --          user's profiles / meal_plans / recipes / shopping_lists /
 --          shopping_list_items / progress_entries / achievements /
---          user_settings rows in the same transaction.
+--          user_settings rows in the same transaction — and, once
+--          ai_providers.sql has been run, their ai_provider_connections
+--          (encrypted AI credentials) and ai_usage_records rows too.
 --
 -- Security: SECURITY DEFINER is required because the authenticated role
 --           cannot delete from auth.users directly. The function takes NO

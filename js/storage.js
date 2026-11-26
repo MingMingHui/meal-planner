@@ -27,7 +27,7 @@
 
 import { mergeByDate } from './utils.js';
 
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
 
 const NS = 'hmpa'; // health-meal-planning-agent namespace, avoids key collisions
 
@@ -40,7 +40,18 @@ const KEYS = {
   chatLog:   `${NS}:chatLog`,
   recipeLog: `${NS}:recipeLog`,
   meta:      `${NS}:meta`, // { schemaVersion, userId, lastSyncedAt }
+  aiUsage:   `${NS}:aiUsage`,   // AI token-usage records kept on this device (guests; offline/pending for accounts)
+  aiConnCache: `${NS}:aiConnCache`, // non-secret summary of account-stored AI connections (see aiConnections.js)
 };
+
+/**
+ * Keys that must NOT follow a guest into an account when they sign in during
+ * the same tab (claimGuestSessionForAccount): a guest's AI usage history and
+ * cached connection list belong to the guest session, not to whichever
+ * account signs in next on this browser. The guest's AI key is dropped from
+ * settings for the same reason.
+ */
+const GUEST_ONLY_KEYS = new Set([KEYS.aiUsage, KEYS.aiConnCache]);
 
 /** sessionStorage-only flag: set while a guest is using this browser session. */
 const GUEST_SESSION_FLAG = `${NS}:guestSessionActive`;
@@ -106,7 +117,16 @@ const DEFAULT_PROFILE = {
 const DEFAULT_SETTINGS = {
   theme: 'light', units: 'metric', language: 'en',
   aiProvider: 'openrouter', apiKey: '', aiModel: '',
+  // Where the active provider's credential lives: 'device' (apiKey below, this
+  // device only) or 'account' (encrypted server-side via ai-proxy).
+  aiCredentialStore: 'device',
+  // Who/what the device apiKey belongs to — a key is only ever used for the
+  // same owner ('guest' or 'user:<id>') and the same provider it was saved for.
+  aiKeyOwner: null, aiKeyProvider: null, aiKeyStatus: 'active', aiKeyAuthMethod: 'api_key',
 };
+
+/** Settings fields that are device-local secrets/bindings — never exported, imported, or synced. */
+export const DEVICE_ONLY_SETTINGS = ['apiKey', 'aiKeyOwner', 'aiKeyProvider', 'aiKeyStatus', 'aiKeyAuthMethod'];
 
 function dedupeAchievements(list) {
   const seen = new Map();
@@ -128,7 +148,33 @@ const MIGRATIONS = {
   // Existing v1 data is left as-is; the next save() call naturally adds the
   // new timestamp fields, so no destructive rewrite is needed here.
   1: () => { /* structural additions only — nothing to transform */ },
+  // v2 → v3: the device API key gets an owner and provider binding so it is
+  // never sent to a different provider or used by a different user. Existing
+  // keys are bound to whoever this device's data was tagged for (or 'guest'),
+  // and to the provider that was selected when they were saved.
+  2: () => {
+    const settings = get(KEYS.settings, null);
+    if (!settings || !settings.apiKey || settings.aiKeyOwner) return;
+    const meta = get(KEYS.meta, {});
+    set(KEYS.settings, {
+      ...settings,
+      aiKeyOwner: meta.userId ? `user:${meta.userId}` : 'guest',
+      aiKeyProvider: settings.aiProvider || 'openrouter',
+      aiKeyStatus: 'active',
+    });
+  },
 };
+
+function withoutDeviceOnlySettings(settings) {
+  const out = { ...settings, apiKey: '' };
+  DEVICE_ONLY_SETTINGS.filter(k => k !== 'apiKey').forEach(k => { delete out[k]; });
+  return out;
+}
+
+/** A guest's AI key stays with the guest session — it is not handed to the account that signs in. */
+function withoutGuestAICredential(settings) {
+  return { ...settings, apiKey: '', aiKeyOwner: null, aiKeyProvider: null, aiKeyStatus: 'active', aiKeyAuthMethod: 'api_key', aiCredentialStore: 'device' };
+}
 
 const Storage = {
   KEYS,
@@ -168,13 +214,20 @@ const Storage = {
   getRecipeLog()     { return get(KEYS.recipeLog, []); },
   saveRecipeLog(log) { set(KEYS.recipeLog, log.slice(-50)); },
 
+  /** AI usage records kept on this device. Capped so storage can't grow without bound. */
+  getAIUsage()       { return get(KEYS.aiUsage, []); },
+  saveAIUsage(list)  { set(KEYS.aiUsage, list.slice(-500)); },
+
+  getAIConnectionCache()      { return get(KEYS.aiConnCache, { ownerId: null, connections: [], fetchedAt: null }); },
+  saveAIConnectionCache(c)    { set(KEYS.aiConnCache, c); },
+
   /** Export everything as a single downloadable JSON blob. */
   exportAll() {
     const payload = {
       exportedAt: new Date().toISOString(),
       schemaVersion: CURRENT_SCHEMA_VERSION,
       profile: Storage.getProfile(),
-      settings: { ...Storage.getSettings(), apiKey: '' }, // never export the API key
+      settings: withoutDeviceOnlySettings(Storage.getSettings()), // never export the API key or its bindings
       mealPlan: Storage.getMealPlan(),
       shopping: Storage.getShoppingList(),
       progress: Storage.getProgress(),
@@ -223,7 +276,8 @@ const Storage = {
       }
       if (payload.settings) {
         const current = Storage.getSettings();
-        set(KEYS.settings, { ...DEFAULT_SETTINGS, ...current, ...payload.settings, apiKey: current.apiKey });
+        const deviceOnly = Object.fromEntries(DEVICE_ONLY_SETTINGS.map(k => [k, current[k]]));
+        set(KEYS.settings, { ...DEFAULT_SETTINGS, ...current, ...payload.settings, ...deviceOnly });
       }
       if (payload.mealPlan) set(KEYS.mealPlan, payload.mealPlan);
       if (payload.shopping) {
@@ -336,8 +390,9 @@ const Storage = {
   claimGuestSessionForAccount() {
     if (SESSION_STORAGE_OK && Storage.isGuestSessionActive()) {
       Object.values(KEYS).forEach((key) => {
-        if (key === KEYS.meta) return;
-        const raw = window.sessionStorage.getItem(key);
+        if (key === KEYS.meta || GUEST_ONLY_KEYS.has(key)) return;
+        let raw = window.sessionStorage.getItem(key);
+        if (raw !== null && key === KEYS.settings) raw = JSON.stringify(withoutGuestAICredential(JSON.parse(raw)));
         if (raw !== null) window.localStorage.setItem(key, raw);
       });
       Object.values(KEYS).forEach((key) => window.sessionStorage.removeItem(key));

@@ -72,3 +72,9 @@ html.native-app textarea { font-size: 16px; min-height: 44px; } /* 16px stops zo
 /* Android WebViews cannot open print dialogs; the share/PDF/text export
    buttons beside it cover the same need. */
 html.native-app #print-btn { display: none; }
+
+/* ---------- AI Provider / AI Usage screens ---------- */
+/* Radio rows and date pickers get full-size touch targets in the app. */
+html.native-app .ai-store-option { min-height: 48px; align-items: center; }
+html.native-app .ai-store-option input { width: 22px; height: 22px; margin-top: 0; }
+html.native-app .usage-filters input[type="date"] { min-height: 48px; }

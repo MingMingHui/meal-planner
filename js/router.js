@@ -24,6 +24,7 @@ const VIEW_TITLES = {
   progress: ['Progress Tracker', 'Weight, calories and milestones'],
   coach: ['AI Coach', 'Ask anything about nutrition'],
   settings: ['Settings', 'Theme, units, AI provider & data'],
+  usage: ['AI Usage', 'Tokens, requests and estimated cost'],
 };
 
 export function registerView(id, onShow) {

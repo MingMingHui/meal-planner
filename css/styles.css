@@ -328,3 +328,42 @@ input:focus, select:focus, textarea:focus{ border-color:var(--primary); backgrou
   .user-menu-trigger span.um-trigger-name{ display:none; }
 }
 
+
+/* ---------- AI Provider settings & AI Usage ---------- */
+.ai-identity{ display:grid; gap:6px; margin:0 0 var(--space-3); }
+.ai-identity > div{ display:grid; grid-template-columns:140px 1fr; gap:10px; font-size:0.85rem; }
+.ai-identity dt{ color:var(--ink-faint); font-weight:700; }
+.ai-identity dd{ margin:0; overflow-wrap:anywhere; }
+.ai-note{ background:var(--accent-tint); color:var(--accent-dark); padding:8px 12px; border-radius:var(--radius-md, 10px); }
+.ai-store{ border:1px solid var(--line); border-radius:var(--radius-md, 10px); padding:10px 12px; margin:var(--space-3) 0; display:grid; gap:8px; }
+.ai-store-option{ display:flex; gap:10px; align-items:flex-start; font-size:0.85rem; cursor:pointer; }
+.ai-store-option.disabled{ opacity:0.55; cursor:not-allowed; }
+.ai-store-option input{ margin-top:3px; }
+.ai-status-row{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:var(--space-3) 0; }
+.ai-divider{ margin:var(--space-3) 0; }
+.ai-actions{ display:flex; flex-wrap:wrap; gap:10px; margin-top:var(--space-3); }
+
+.view[data-view="usage"] > .card, #usage-body > .card{ margin-bottom:var(--space-5); }
+.usage-filters{ display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)) auto; gap:var(--space-3); align-items:end; }
+.usage-filter-actions{ display:flex; gap:8px; }
+.usage-tiles{ display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:var(--space-3); }
+.usage-tiles .stat-card{ background:var(--bg-alt); border-radius:var(--radius-md, 10px); padding:12px; min-width:0; }
+.usage-tiles .stat-value{ font-size:1.35rem; overflow-wrap:anywhere; }
+.usage-subhead{ font-size:0.85rem; margin:var(--space-5) 0 var(--space-2); }
+.usage-table{ width:100%; border-collapse:collapse; font-size:0.82rem; }
+.usage-table th{ text-align:left; color:var(--ink-faint); font-weight:700; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; padding:8px; border-bottom:1px solid var(--line); }
+.usage-table td{ padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
+.usage-table td:nth-child(n+4){ font-family:var(--font-mono); }
+
+@media (max-width:860px){
+  .usage-filters{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .usage-filter-actions{ grid-column:1/-1; }
+  .usage-tiles{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .ai-identity > div{ grid-template-columns:1fr; gap:2px; }
+  /* Tables become labelled cards on phones (web and the Android app). */
+  .usage-table thead{ display:none; }
+  .usage-table, .usage-table tbody, .usage-table tr, .usage-table td{ display:block; width:100%; }
+  .usage-table tr{ border:1px solid var(--line); border-radius:var(--radius-md, 10px); padding:6px 10px; margin-bottom:10px; }
+  .usage-table td{ display:flex; justify-content:space-between; gap:12px; border-bottom:none; padding:4px 0; text-align:right; }
+  .usage-table td::before{ content:attr(data-label); font-family:var(--font-sans, inherit); font-weight:700; color:var(--ink-faint); text-align:left; }
+}

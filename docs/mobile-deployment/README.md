@@ -56,6 +56,8 @@ Business rules, calculations, storage format, sync and RLS are untouched. `mobil
 
 **OAuth in the app.** Tap "Continue with Gmail" → `signInWithOAuth({ skipBrowserRedirect })` → the provider page opens in a Chrome Custom Tab → Supabase redirects to `com.ch2digital.mealplannerai://auth-callback?code=…` → Android hands that to the app → the bridge loads `./index.html?code=…` → supabase-js exchanges the code (PKCE), exactly where the web redirect would land → `authGate.js` forwards to the dashboard.
 
+**AI providers and AI Usage in the app.** Settings → AI Provider and the AI Usage page (side menu) are the same shared screens and business logic as the web app (`js/aiViews.js`, `js/aiConnections.js`, `js/ai/`). Keys saved to the account go through the same `ai-proxy` Edge Function, with the same API contract. The only platform difference is that "Connect with OpenRouter" (OAuth) is not shown in the app: OpenRouter accepts only https callback URLs, not the app's deep link. App users paste an API key instead. Allow `https://localhost` in `AI_PROXY_ALLOWED_ORIGINS` if you restrict origins. See [../ai-providers.md](../ai-providers.md).
+
 **Guest sessions in the app.** Guest data lives in WebView `sessionStorage`, as on the web. In the app that lasts until the app process ends (swiped away, or killed by Android), not until a browser tab closes. Pressing Back on the home screen backgrounds the app instead of closing it, so guest data survives normal use.
 
 ---

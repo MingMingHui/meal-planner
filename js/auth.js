@@ -43,7 +43,10 @@ export async function initializeAuth() {
   try {
     client = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
       auth: {
-        persistSession: true, autoRefreshToken: true, detectSessionInUrl: true,
+        persistSession: true, autoRefreshToken: true,
+        // An AI provider's OAuth callback (?ai_oauth=…&code=…, see
+        // aiConnections.js) carries that provider's code, not a Supabase one.
+        detectSessionInUrl: !new URLSearchParams(window.location.search).has('ai_oauth'),
         // The Android app finishes OAuth via a deep link that hands back a
         // one-time ?code= (see mobile/src/native-bridge.js), which requires
         // the PKCE flow. The web keeps supabase-js's default flow.

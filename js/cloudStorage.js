@@ -13,6 +13,9 @@
  */
 
 import { getSupabaseClient, getCurrentUser, isCloudConfigured } from './auth.js';
+import { DEVICE_ONLY_SETTINGS } from './storage.js';
+import { AI_PROXY_FUNCTION, PUBLIC_CONNECTION_COLUMNS, USAGE_COLUMNS, toPublicConnection, usageRecordToRow, rowToUsageRecord } from './ai/contract.js';
+import { AIError, AI_ERROR_CODES } from './ai/errors.js';
 
 function client() {
   const c = getSupabaseClient();
@@ -182,7 +185,8 @@ export async function saveProgress(progress) {
 /** Note: never pass an AI apiKey into this — see README "API Key Security". */
 export async function saveSettings(settings) {
   const uid = userId();
-  const { apiKey, ...safeSettings } = settings; // eslint-disable-line no-unused-vars
+  const safeSettings = { ...settings };
+  DEVICE_ONLY_SETTINGS.forEach((k) => { delete safeSettings[k]; }); // the device API key and its bindings never leave the device
   return checkResult('settings save', await client()
     .from('user_settings')
     .upsert({ user_id: uid, data: safeSettings }, { onConflict: 'user_id' })
@@ -203,7 +207,7 @@ export async function loadSettings() {
 export async function deleteUserData() {
   const uid = userId();
   const c = client();
-  const tables = ['profiles', 'meal_plans', 'recipes', 'shopping_lists', 'shopping_list_items', 'progress_entries', 'achievements', 'user_settings'];
+  const tables = ['profiles', 'meal_plans', 'recipes', 'shopping_lists', 'shopping_list_items', 'progress_entries', 'achievements', 'user_settings', 'ai_provider_connections', 'ai_usage_records'];
   const results = await Promise.all(tables.map(t => c.from(t).delete().eq('user_id', uid)));
   const failed = results.filter(r => r.error);
   if (failed.length) throw new Error(`Some cloud data could not be deleted: ${failed.map(f => f.error.message).join('; ')}`);
@@ -225,4 +229,76 @@ export async function deleteAccount() {
     throw new Error(`Account deletion failed: ${error.message}`);
   }
   return true;
+}
+
+/* ---------------------------- AI providers & usage ---------------------------- */
+/* Table and function shapes: js/ai/contract.js and supabase/ai_providers.sql.   */
+
+/** The signed-in user's account-stored AI connections — non-secret columns only (the ciphertext is not even selectable). */
+export async function loadAIConnections() {
+  const uid = userId();
+  const { data, error } = await client().from('ai_provider_connections').select(PUBLIC_CONNECTION_COLUMNS).eq('user_id', uid);
+  if (error) {
+    // Table not created yet (ai_providers.sql not run) — treat as "no account connections".
+    if (error.code === '42P01' || error.code === 'PGRST205') return [];
+    throw new AIError(AI_ERROR_CODES.UNKNOWN, 'Could not load your AI connections.');
+  }
+  return (data || []).map(toPublicConnection);
+}
+
+/** Direct revocation of one account connection (RLS: own rows only). Used when ai-proxy is unreachable. */
+export async function deleteAIConnection(provider) {
+  const uid = userId();
+  const { error } = await client().from('ai_provider_connections').delete().eq('user_id', uid).eq('provider', provider);
+  if (error) throw new AIError(AI_ERROR_CODES.UNKNOWN, 'Could not disconnect this provider.');
+}
+
+/** Inserts a client-recorded usage row (RLS only accepts recorded_by = 'client' for your own user id). */
+export async function insertAIUsage(record) {
+  const uid = userId();
+  const { error } = await client().from('ai_usage_records').insert(usageRecordToRow({ ...record, recordedBy: 'client' }, uid));
+  if (error) throw new AIError(AI_ERROR_CODES.USAGE_UNAVAILABLE, 'Could not save AI usage to your account.');
+}
+
+/** The signed-in user's usage history, newest first, filtered server-side. */
+export async function loadAIUsage({ from, to, provider, model, limit = 1000 } = {}) {
+  const uid = userId();
+  let q = client().from('ai_usage_records').select(USAGE_COLUMNS).eq('user_id', uid).order('created_at', { ascending: false }).limit(limit);
+  if (from) q = q.gte('created_at', new Date(`${from}T00:00:00`).toISOString());
+  if (to) q = q.lte('created_at', new Date(`${to}T23:59:59.999`).toISOString());
+  if (provider) q = q.eq('provider', provider);
+  if (model) q = q.eq('model', model);
+  const { data, error } = await q;
+  if (error) {
+    if (error.code === '42P01' || error.code === 'PGRST205') return [];
+    throw new AIError(AI_ERROR_CODES.USAGE_UNAVAILABLE);
+  }
+  return (data || []).map(rowToUsageRecord);
+}
+
+/**
+ * Calls the ai-proxy Edge Function. supabase-js attaches the user's access
+ * token. Errors come back as AIError with the server's code; the request
+ * body (which may contain a key being saved) is never logged.
+ */
+export async function invokeAIProxy(action, payload = {}, { timeoutMs = 60000 } = {}) {
+  const c = client();
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new AIError(AI_ERROR_CODES.NETWORK);
+  let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new AIError(AI_ERROR_CODES.TIMEOUT)), timeoutMs); });
+  try {
+    const { data, error } = await Promise.race([c.functions.invoke(AI_PROXY_FUNCTION, { body: { action, ...payload } }), timeout]);
+    if (!error) return data;
+    const response = error.context;
+    if (response && typeof response.json === 'function') {
+      const body = await response.json().catch(() => null);
+      if (body?.error?.code) throw new AIError(body.error.code, body.error.message, { status: response.status });
+      if (response.status === 404) throw new AIError(AI_ERROR_CODES.PROXY_UNAVAILABLE, undefined, { status: 404 });
+      if (response.status === 401) throw new AIError(AI_ERROR_CODES.APP_AUTH_REQUIRED, undefined, { status: 401 });
+    }
+    // FunctionsFetchError / FunctionsRelayError: not deployed, blocked, or offline.
+    throw new AIError(AI_ERROR_CODES.PROXY_UNAVAILABLE);
+  } finally {
+    clearTimeout(timer);
+  }
 }

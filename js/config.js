@@ -41,7 +41,7 @@ const CONFIG = {
 
   // Local storage schema version. Bump this and add a migration in
   // storage.js's MIGRATIONS map whenever the stored data shape changes.
-  SCHEMA_VERSION: 2,
+  SCHEMA_VERSION: 3,
 };
 
 /** True once real Supabase credentials have been filled in above. */

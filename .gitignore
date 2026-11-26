@@ -1,1 +1,9 @@
 *.json
+
+# Environment files and secrets — only *.example templates are committed
+.env
+.env.*
+!.env.example
+supabase/functions/.env
+supabase/.temp/
+supabase/.branches/

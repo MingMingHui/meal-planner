@@ -133,7 +133,12 @@ health-meal-planner/
 │   ├── recipes.js             # recipe filtering, local + AI meal planning, recipe views
 │   ├── shopping.js           # shopping list build/render/export/print
 │   ├── progress.js           # weight/calorie/water logging, charts, achievements
-│   ├── ai.js                    # swappable AI provider abstraction
+│   ├── ai.js                    # chatComplete(): routes every AI feature to the selected provider/model
+│   ├── aiConnections.js      # AI provider connection state: store (account/device/session), connect, OAuth, disconnect
+│   ├── aiUsage.js             # where AI usage records are kept/read (account table, or session for guests)
+│   ├── aiViews.js             # Settings → AI Provider card and the AI Usage page
+│   ├── ai/                      # shared AI core (also run by the ai-proxy Edge Function): providers/adapters,
+│   │                            #   chat execution, usage & cost, errors, policy, OAuth PKCE, API contract
 │   ├── pdf.js                  # in-browser PDF report generation (jsPDF + autoTable)
 │   ├── utils.js               # small shared date/merge helpers
 │   ├── platform.js           # file saving that also works inside the Android app's WebView
@@ -150,11 +155,16 @@ health-meal-planner/
 ├── supabase/
 │   ├── schema.sql             # tables, keys, indexes, triggers
 │   ├── policies.sql           # Row Level Security policies
-│   └── delete_account.sql     # delete_my_account() — lets a user delete their own account
+│   ├── delete_account.sql     # delete_my_account() — lets a user delete their own account
+│   ├── ai_providers.sql       # AI provider connections (encrypted) + token usage tables, RLS
+│   └── functions/
+│       ├── ai-proxy/          # Edge Function: encrypted AI key storage, proxied chat, usage telemetry
+│       └── _shared/ai/        # generated copy of js/ai/ (npm run sync:shared-ai in mobile/)
 │
 ├── mobile/                    # Android app (Capacitor) packaging this same web app — see docs/mobile-deployment/
 │
 └── docs/
+    ├── ai-providers.md        # AI providers, auth flows, credential storage, token usage, security
     └── mobile-deployment/     # Android build, Google Play release, compliance and testing guides
 ```
 
@@ -240,6 +250,8 @@ In the same SQL Editor, paste the contents of `supabase/policies.sql` and run it
 
 Then paste and run `supabase/delete_account.sql`, which enables **Settings → Delete Account** (see [Delete Account](#delete-account)).
 
+Optional — to let signed-in users save AI keys to their account (encrypted) and to record their AI usage in the cloud: run `supabase/ai_providers.sql`, set the `AI_CREDENTIALS_ENCRYPTION_KEY` function secret and deploy the `ai-proxy` Edge Function, as described in [docs/ai-providers.md → Setup](docs/ai-providers.md#setup-database-edge-function-secrets). Without it, AI keys simply stay on each device.
+
 ### 8. Configure the frontend
 
 Edit `js/config.js`:
@@ -294,20 +306,31 @@ Every PDF includes the app name, your name (from your account or profile), the r
 
 ## How AI Integration Works
 
-The app never bundles or hardcodes an AI API key. Every AI feature (Recipe Generator, AI meal plan, AI Coach) reads the provider, model and key you enter yourself in **Settings → AI Provider**, stored only in your browser's `localStorage` — **AI API keys are intentionally never synced to the cloud database**, even when you're signed in (see `cloudStorage.js`'s `saveSettings`, which strips it before writing).
+Users connect their **own** AI provider account in **Settings → AI Provider**; the app never bundles or hardcodes an AI key. Recipe Generator, AI Meal Plan and AI Coach all go through `js/ai.js → chatComplete()`, which uses the provider and model the user selected via one shared provider abstraction (`js/ai/providers.js`: an `AIProvider` adapter per API kind — OpenAI-compatible and Anthropic).
 
-`js/ai.js` is a single abstraction layer: every supported provider speaks an OpenAI-compatible `/chat/completions` schema, so swapping providers is a matter of changing one config object. If a request fails (missing key, network error, rate limit, malformed response), the error is caught and surfaced as a clear message rather than crashing the view — and the Meal Planner and Recipe Generator always have a local, offline-capable fallback so the app stays useful even with no key at all.
+Where the credential lives is the user's choice:
+
+- **Encrypted in your account** (signed-in, recommended): the key is verified and AES-256-GCM encrypted by the `ai-proxy` Supabase Edge Function, AI requests go through it, and it records token usage. The browser only ever sees a `••••abcd` hint.
+- **This device only** (signed-in) / **this browser session only** (guests): the key stays in the browser and requests go straight to the provider — the app's original behaviour, still used automatically when `ai-proxy` isn't deployed.
+
+The **AI Usage** page shows requests, input/output/total tokens and estimated cost per provider and model, with date/provider/model filters and labels distinguishing provider-reported from app-estimated numbers. Prompts and replies are never stored.
+
+The Meal Planner and Recipe Generator keep their local, offline fallback when no provider is connected.
+
+Full details — auth flows, setup, API contract, tables, security, adding a provider: **[docs/ai-providers.md](docs/ai-providers.md)**.
 
 ## Supported AI Providers
 
-All are free-tier friendly, open-source-model providers — never OpenAI, never a paid-only API:
+| Provider | Connect with | Example models |
+|---|---|---|
+| [OpenAI](https://platform.openai.com/api-keys) | API key | GPT-4.1 mini, GPT-4.1 nano, GPT-4o mini |
+| [Anthropic (Claude)](https://console.anthropic.com/settings/keys) | API key | Claude Opus 5.5, Claude Sonnet 5.5, Claude Haiku 5.5 |
+| [OpenRouter](https://openrouter.ai/keys) | Sign in with OpenRouter (OAuth PKCE, web) or API key | Llama 3.1 8B, Mistral 7B, Gemma 2 9B, Qwen 2.5 7B, DeepSeek (`:free` variants) |
+| [Groq](https://console.groq.com/keys) | API key | Llama 3.1 8B Instant, Llama 3.3 70B Versatile, Gemma 2 9B |
+| [Together AI](https://api.together.xyz/settings/api-keys) | API key | Llama 3.3 70B Turbo (free), Qwen 2.5 7B Turbo |
+| [Hugging Face Inference](https://huggingface.co/settings/tokens) | Access token | Llama 3.1 8B Instruct, Mistral 7B Instruct, Qwen 2.5 7B Instruct |
 
-| Provider | Example free/open models |
-|---|---|
-| [OpenRouter](https://openrouter.ai/keys) | Llama 3.1 8B, Mistral 7B, Gemma 2 9B, Qwen 2.5 7B, DeepSeek (all `:free` variants) |
-| [Groq](https://console.groq.com/keys) | Llama 3.1 8B Instant, Llama 3.3 70B Versatile, Gemma 2 9B |
-| [Together AI](https://api.together.xyz/settings/api-keys) | Llama 3.3 70B Turbo (free), Qwen 2.5 7B Turbo |
-| [Hugging Face Inference](https://huggingface.co/settings/tokens) | Llama 3.1 8B Instruct, Mistral 7B Instruct, Qwen 2.5 7B Instruct |
+OpenAI and Anthropic don't offer end-user OAuth for API access, so they use their official API-key flow; a ChatGPT/Claude.ai subscription does not include API access. The app never asks for a provider password.
 
 ---
 
@@ -315,8 +338,8 @@ All are free-tier friendly, open-source-model providers — never OpenAI, never 
 
 > ⚠️ **NEVER use the Supabase `service_role` key in this frontend application.** Only use the **public/anon key**, which is designed to be exposed in browser code. Row Level Security (`supabase/policies.sql`) is what actually protects your users' data — the anon key alone grants no access to anything.
 
-- `js/config.js` only ever holds the anon key. Do not paste a `service_role` key into `index.html`, any `.js` file, or a committed `.env` — this repository has no server, so there is nowhere safe to use a service-role key at all.
-- AI provider API keys entered by users stay in `localStorage` only; they are never sent to Supabase or included in JSON export.
+- `js/config.js` only ever holds the anon key. Do not paste a `service_role` key into `index.html`, any `.js` file, or a committed `.env`. The only place a service-role key is used is inside the `ai-proxy` Edge Function, where Supabase injects it server-side.
+- AI provider keys kept on the device stay in browser storage, bound to their owner and provider; they are never synced, exported, or sent anywhere but the provider. Keys saved to an account are encrypted by `ai-proxy` (secret `AI_CREDENTIALS_ENCRYPTION_KEY`, a function secret — never in the repo), the ciphertext column is not readable by clients, and only a `••••abcd` hint is ever returned. See [docs/ai-providers.md → Security](docs/ai-providers.md#security).
 - All Supabase tables have Row Level Security enabled with policies scoped to `auth.uid() = user_id` — enforced by PostgreSQL itself, not by client-side JavaScript.
 - Destructive actions (Delete Local Data, Delete Cloud Data, Delete Account) always ask for confirmation first, and only delete the scope they claim to (local-only vs cloud-only never touches the other; Delete Account removes both, by design).
 - **Account deletion** runs through the `delete_my_account()` database function (`supabase/delete_account.sql`), not a `service_role` key. It is `SECURITY DEFINER`, takes no arguments, deletes only `auth.uid()` — the caller's own verified id — and is executable by the `authenticated` role only. See [Delete Account](#delete-account).
@@ -382,6 +405,14 @@ _placeholder — add screenshots of the Dashboard, Meal Planner, Recipe Generato
 - [ ] First-login conflict prompt appears when both local and cloud data exist, and all three choices (Merge/Keep Cloud/Keep Device) work
 - [ ] Progress entries merge (not overwrite) when logged from two devices on different dates
 
+### AI providers & usage
+- [ ] Guest: connect a provider with an API key, chat with the AI Coach, see the request on AI Usage; closing the tab clears both
+- [ ] Signed in: "Encrypted in your account" is offered once `ai-proxy` is deployed; connecting shows only a `••••` hint; chat works on a second device without re-entering the key
+- [ ] A wrong key is rejected and not saved; Disconnect removes it
+- [ ] Switching provider/model changes which API is called (check AI Usage → Provider/Model)
+- [ ] OpenRouter "Connect with OpenRouter" returns to Settings connected (web)
+- [ ] AI Usage filters (date, provider, model) and CSV export work; estimates are labelled
+
 ### PDF
 - [ ] Complete Report generates and downloads with all sections
 - [ ] Meal Plan PDF matches the current plan
@@ -412,7 +443,8 @@ _placeholder — add screenshots of the Dashboard, Meal Planner, Recipe Generato
 
 ## Known Limitations
 
-- AI features require the user's own free API key; without one, AI Coach is unavailable and the Recipe Generator/Meal Planner fall back to the local database.
+- AI features require the user's own AI provider account (API key, or OpenRouter sign-in); without one, AI Coach is unavailable and the Recipe Generator/Meal Planner fall back to the local database.
+- AI cost figures are estimates from list prices (except OpenRouter, which reports its charge); the provider's bill is authoritative. OpenRouter sign-in is web-only — the Android app uses an API key.
 - Nutrition figures are estimates based on standard food composition data, not medical-grade measurements — the app is not a substitute for professional dietary or medical advice.
 - Some AI providers may rate-limit free-tier keys; the app surfaces this as a clear error rather than failing silently.
 - Imperial units are label-only in this version; all calculations remain in metric.

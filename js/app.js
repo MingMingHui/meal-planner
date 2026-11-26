@@ -19,7 +19,10 @@
 
 import Storage from './storage.js';
 import { calcFullProfile, ACTIVITY_FACTORS, GOAL_ADJUSTMENTS } from './nutrition.js';
-import { PROVIDERS, coachReply, hasAPIKey } from './ai.js';
+import { coachReply, hasAPIKey } from './ai.js';
+import { renderAIProviderCard, renderUsageView, reportOAuthResult } from './aiViews.js';
+import { completeOAuthFromUrl } from './aiConnections.js';
+import { flushPendingUsage } from './aiUsage.js';
 import { ICONS, escapeHTML, fmt, toast, optionsFromMap, openModal, closeModal, el } from './ui.js';
 import { initRouter, registerView, navigate } from './router.js';
 import { loadAppData } from './data.js';
@@ -605,7 +608,6 @@ function renderProfileView() {
 function renderSettingsView() {
   const container = document.getElementById('view-settings');
   const s = Storage.getSettings();
-  const providerOptions = Object.fromEntries(Object.entries(PROVIDERS).map(([k, v]) => [k, v.label]));
   const authed = isAuthenticated();
   const profile = authed ? getUserProfile() : null;
   const lastSynced = Storage.getLastSyncedAt();
@@ -650,17 +652,7 @@ function renderSettingsView() {
         </div>
       </div>
 
-      <div class="g-6 card">
-        <div class="card-title"><h3>AI Provider</h3></div>
-        <p class="small">Bring your own free API key. Nothing is sent anywhere except the provider you choose, directly from your browser. Your key stays in this browser only — it is never synced to the cloud.</p>
-        <div class="form-grid">
-          <div class="field full"><label>Provider</label><select id="set-provider">${optionsFromMap(providerOptions, s.aiProvider)}</select></div>
-          <div class="field full"><label>Model</label><select id="set-model"></select></div>
-          <div class="field full"><label>API key</label><input type="password" id="set-apikey" value="${escapeHTML(s.apiKey || '')}" placeholder="Paste your API key" autocomplete="off" /></div>
-        </div>
-        <p class="small">Get a free key: <a id="provider-key-link" href="#" target="_blank" rel="noopener"></a></p>
-        <button class="btn btn-primary btn-sm" id="save-ai-btn">Save AI settings</button>
-      </div>
+      <div class="g-12 card" id="settings-ai-card"></div>
 
       <div class="g-12 card">
         <div class="card-title"><h3>Your data</h3></div>
@@ -689,36 +681,16 @@ function renderSettingsView() {
         <div class="card-title"><h3>Privacy</h3></div>
         <p class="small"><b>Guest users:</b> your data is stored only in this browser tab's session storage — nothing leaves your device, and it is cleared automatically when you close the browser. Export, download a PDF, or share your data before then if you want to keep it.</p>
         <p class="small"><b>Signed-in users:</b> your data is additionally synchronized to a cloud database (Supabase), protected so only your account can read or write it.</p>
-        <p class="small"><b>AI features:</b> when you use the Recipe Generator, AI Meal Plan, or AI Coach, relevant profile details (e.g. weight, goals, allergies) are sent to the AI provider you configured, directly from your browser, to generate a response. This data is not "100% private" once sent to that third-party provider — review your chosen provider's own privacy policy.</p>
+        <p class="small"><b>AI features:</b> when you use the Recipe Generator, AI Meal Plan, or AI Coach, relevant profile details (e.g. weight, goals, allergies) are sent to the AI provider you configured — directly from your browser for keys kept on this device, or via this app's secure AI service for keys saved to your account — to generate a response. This data is not "100% private" once sent to that third-party provider — review your chosen provider's own privacy policy. The app records token counts for the AI Usage page, never your prompts or the AI's replies.</p>
       </div>
     </div>
   `;
 
-  const providerSelect = container.querySelector('#set-provider');
-  const modelSelect = container.querySelector('#set-model');
-  const keyLink = container.querySelector('#provider-key-link');
-
-  function refreshModelOptions() {
-    const providerInfo = PROVIDERS[providerSelect.value];
-    modelSelect.innerHTML = providerInfo.modelOptions.map(m => `<option value="${escapeHTML(m)}" ${m === (s.aiModel || providerInfo.defaultModel) ? 'selected' : ''}>${escapeHTML(m)}</option>`).join('');
-    keyLink.href = providerInfo.keyUrl;
-    keyLink.textContent = providerInfo.keyUrl;
-  }
-  providerSelect.addEventListener('change', refreshModelOptions);
-  refreshModelOptions();
+  renderAIProviderCard(container.querySelector('#settings-ai-card'));
 
   container.querySelector('#set-theme').addEventListener('change', (e) => { applyTheme(e.target.value); Storage.saveSettings({ theme: e.target.value }); });
   container.querySelector('#set-units').addEventListener('change', (e) => Storage.saveSettings({ units: e.target.value }));
   container.querySelector('#set-lang').addEventListener('change', (e) => Storage.saveSettings({ language: e.target.value }));
-
-  container.querySelector('#save-ai-btn').addEventListener('click', () => {
-    Storage.saveSettings({
-      aiProvider: providerSelect.value,
-      aiModel: modelSelect.value,
-      apiKey: container.querySelector('#set-apikey').value.trim(),
-    });
-    toast('AI settings saved.', 'success');
-  });
 
   container.querySelector('#settings-google-btn')?.addEventListener('click', () => signInWithGmail().catch(err => toast(err.message, 'error', 5000)));
   container.querySelector('#settings-microsoft-btn')?.addEventListener('click', () => signInWithOutlook().catch(err => toast(err.message, 'error', 5000)));
@@ -841,7 +813,7 @@ function renderCoachView() {
 
   container.innerHTML = `
     <div class="card">
-      ${!hasAPIKey() ? `<p class="small" style="margin-bottom:12px;">Add a free AI provider API key in <a href="#" id="coach-goto-settings">Settings</a> to chat with the AI Coach.</p>` : ''}
+      ${!hasAPIKey() ? `<p class="small" style="margin-bottom:12px;">Connect an AI provider in <a href="#" id="coach-goto-settings">Settings → AI Provider</a> to chat with the AI Coach.</p>` : ''}
       <div class="suggest-row">${suggestions.map(s => `<button class="chip" data-suggest="${escapeHTML(s)}">${escapeHTML(s)}</button>`).join('')}</div>
       <div class="chat-window" id="chat-window"></div>
       <div class="chat-input-row">
@@ -892,7 +864,7 @@ async function sendChat(container, text) {
   Storage.saveChatLog(log);
 
   if (!hasAPIKey()) {
-    appendMessage(chatWindow, 'assistant', 'Add a free AI provider API key in Settings to unlock the AI Coach chat.', true);
+    appendMessage(chatWindow, 'assistant', 'Connect an AI provider in Settings → AI Provider to unlock the AI Coach chat.', true);
     return;
   }
 
@@ -962,6 +934,7 @@ async function initApp() {
   registerView('progress', renderProgressView);
   registerView('coach', renderCoachView);
   registerView('settings', renderSettingsView);
+  registerView('usage', renderUsageView);
 
   const dataPromise = loadAppData().catch(() => {
     toast('Some data failed to load. Functionality may be limited until you reload.', 'error', 5000);
@@ -1000,10 +973,15 @@ async function initApp() {
 
   await dataPromise;
 
+  // Returning from an AI provider's OAuth page (?ai_oauth=…): finish the
+  // connection before routing — this also strips code/state from the URL.
+  const oauthResult = await completeOAuthFromUrl();
+
   renderUserMenu();
   updateSyncBadge();
   renderGuestBanner();
   initRouter('dashboard');
+  reportOAuthResult(oauthResult);
 
   if (isAuthenticated()) {
     await handlePostAuth();
@@ -1011,7 +989,7 @@ async function initApp() {
     renderDashboard();
   }
 
-  window.addEventListener('online', () => toast('Back online.', 'success'));
+  window.addEventListener('online', () => { toast('Back online.', 'success'); flushPendingUsage().catch(() => {}); });
   window.addEventListener('offline', () => toast('You are offline — locally stored data and plans still work.', 'default', 4000));
 }
 

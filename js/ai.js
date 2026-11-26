@@ -1,132 +1,95 @@
 /**
  * ai.js
  * ----------------------------------------------------------------------------
- * Purpose: Abstraction layer over several free/open-source-model AI providers
- *          so the rest of the app never talks to a specific vendor directly.
- *          The user supplies their own API key in Settings — nothing is
- *          hardcoded or bundled with the app.
- * Inputs:  Chat-style message arrays, plus provider/model/key from Storage
- *          settings.
- * Outputs: Promise<string> (assistant reply text) or a thrown Error with a
- *          human-readable .message for the caller to surface to the user.
- * Depends on: storage.js (reads aiProvider/apiKey/aiModel settings).
+ * Purpose: The app's AI entry point. Recipe Generator, AI Meal Plan and AI
+ *          Coach all call chatComplete(); it sends the request to the
+ *          provider + model the user selected in Settings → AI Provider,
+ *          through the shared AIProvider adapters in ai/providers.js:
+ *
+ *            User/Guest → AI Provider settings → selected provider/model
+ *              → credential store
+ *                  'account'         → ai-proxy Edge Function (key decrypted
+ *                                      server-side, usage recorded server-side)
+ *                  'device'/'session' → provider API directly from this
+ *                                      browser (usage recorded by aiUsage.js)
+ *              → same adapter, same limits, same error codes either way.
+ *
+ *          Nothing here is provider-specific; adding a provider never touches
+ *          this file. The web app and the Android app run this same file.
+ * Inputs:  Chat-style message arrays + the active connection (aiConnections.js).
+ * Outputs: Promise<string> (assistant reply text) or a thrown AIError whose
+ *          .message is safe to show and whose .code drives the UI.
+ * Depends on: aiConnections.js, aiUsage.js, cloudStorage.js, ai/*.
  * ----------------------------------------------------------------------------
  */
 
-import Storage from './storage.js';
+import { getActiveConnection, getDeviceApiKey, isAIConfigured, markCredentialFailure, markCredentialVerified } from './aiConnections.js';
+import { recordUsage } from './aiUsage.js';
+import { invokeAIProxy } from './cloudStorage.js';
+import { PROVIDERS, validateChatRequest } from './ai/providers.js';
+import { runProviderChat } from './ai/chat.js';
+import { buildUsageRecord } from './ai/usage.js';
+import { AIError, AI_ERROR_CODES as C, CREDENTIAL_FAILURE_CODES, toAIError } from './ai/errors.js';
+import { PROXY_ACTIONS } from './ai/contract.js';
+import { CREDENTIAL_STORES } from './ai/policy.js';
 
-/**
- * All supported providers speak an OpenAI-compatible /chat/completions
- * schema, which is what lets a single request function serve all of them —
- * this is the "swap provider easily" abstraction the app requires.
- */
-export const PROVIDERS = {
-  openrouter: {
-    label: 'OpenRouter (free models)',
-    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    defaultModel: 'meta-llama/llama-3.1-8b-instruct:free',
-    modelOptions: [
-      'meta-llama/llama-3.1-8b-instruct:free',
-      'mistralai/mistral-7b-instruct:free',
-      'google/gemma-2-9b-it:free',
-      'qwen/qwen-2.5-7b-instruct:free',
-      'deepseek/deepseek-chat:free',
-    ],
-    keyUrl: 'https://openrouter.ai/keys',
-    extraHeaders: { 'HTTP-Referer': 'https://github.com/health-meal-planner', 'X-Title': 'Health Meal Planning Agent' },
-  },
-  groq: {
-    label: 'Groq (open-source models)',
-    endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-    defaultModel: 'llama-3.1-8b-instant',
-    modelOptions: ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'gemma2-9b-it'],
-    keyUrl: 'https://console.groq.com/keys',
-  },
-  together: {
-    label: 'Together AI (free models)',
-    endpoint: 'https://api.together.xyz/v1/chat/completions',
-    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
-    modelOptions: ['meta-llama/Llama-3.3-70B-Instruct-Turbo-Free', 'Qwen/Qwen2.5-7B-Instruct-Turbo'],
-    keyUrl: 'https://api.together.xyz/settings/api-keys',
-  },
-  huggingface: {
-    label: 'Hugging Face Inference (router)',
-    endpoint: 'https://router.huggingface.co/v1/chat/completions',
-    defaultModel: 'meta-llama/Llama-3.1-8B-Instruct',
-    modelOptions: ['meta-llama/Llama-3.1-8B-Instruct', 'mistralai/Mistral-7B-Instruct-v0.3', 'Qwen/Qwen2.5-7B-Instruct'],
-    keyUrl: 'https://huggingface.co/settings/tokens',
-  },
-};
+export { PROVIDERS, AIError };
 
+/** The active provider/model (no secrets). Kept for existing callers. */
 export function getAIConfig() {
-  const s = Storage.getSettings();
-  const provider = PROVIDERS[s.aiProvider] ? s.aiProvider : 'openrouter';
-  const model = s.aiModel || PROVIDERS[provider].defaultModel;
-  return { provider, model, apiKey: s.apiKey || '', providerInfo: PROVIDERS[provider] };
+  const c = getActiveConnection();
+  return { provider: c.provider, model: c.model, providerInfo: c.providerInfo, store: c.store, configured: c.configured };
 }
 
+/** True when the active provider has a usable credential for this user/guest. */
 export function hasAPIKey() {
-  return !!Storage.getSettings().apiKey;
+  return isAIConfigured();
 }
-
-class AIError extends Error {}
 
 /**
- * Low-level call to the configured provider. Every caller in the app should
- * go through this so provider swaps, timeouts and error messages stay
- * consistent everywhere (recipe generator, meal planner, AI coach).
+ * Low-level call to the configured provider. Every AI feature goes through
+ * this so provider swaps, timeouts, usage recording and error messages stay
+ * consistent everywhere.
  * @param {Array<{role:string, content:string}>} messages
- * @param {{temperature?:number, maxTokens?:number, timeoutMs?:number}} opts
+ * @param {{temperature?:number, maxTokens?:number, timeoutMs?:number, feature?:string}} opts
  */
 export async function chatComplete(messages, opts = {}) {
-  const { provider, model, apiKey, providerInfo } = getAIConfig();
-  if (!apiKey) {
-    throw new AIError('No API key configured. Add one for your chosen provider in Settings → AI Provider.');
+  const conn = getActiveConnection();
+  if (!conn.configured) throw new AIError(C.NOT_CONFIGURED);
+  const request = validateChatRequest({ provider: conn.provider, model: conn.model, messages, temperature: opts.temperature, maxTokens: opts.maxTokens, feature: opts.feature });
+
+  if (conn.store === CREDENTIAL_STORES.ACCOUNT) {
+    try {
+      const result = await invokeAIProxy(PROXY_ACTIONS.CHAT, request, { timeoutMs: (opts.timeoutMs || 45000) + 15000 });
+      if (!result?.text) throw new AIError(C.BAD_RESPONSE);
+      return result.text.trim();
+    } catch (err) {
+      const e = toAIError(err, conn.providerInfo);
+      if (CREDENTIAL_FAILURE_CODES.includes(e.code)) markCredentialFailure(conn.provider, conn.store, e.code);
+      throw e;
+    }
   }
 
-  const controller = new AbortController();
-  const timeoutMs = opts.timeoutMs || 30000;
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
+  const apiKey = getDeviceApiKey(conn.provider);
+  if (!apiKey) throw new AIError(C.NOT_CONFIGURED);
+  const started = Date.now();
   try {
-    const res = await fetch(providerInfo.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        ...(providerInfo.extraHeaders || {}),
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: opts.temperature ?? 0.7,
-        max_tokens: opts.maxTokens ?? 900,
-      }),
-      signal: controller.signal,
-    });
-
-    if (res.status === 401 || res.status === 403) {
-      throw new AIError('Your API key was rejected. Double-check it in Settings.');
-    }
-    if (res.status === 429) {
-      throw new AIError('Rate limit reached for this provider/model. Wait a moment, or switch models in Settings.');
-    }
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new AIError(`AI provider returned an error (${res.status}). ${text.slice(0, 160)}`);
-    }
-
-    const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) throw new AIError('The AI response was empty or malformed. Please try again.');
-    return content.trim();
+    const result = await runProviderChat({ ...request, apiKey, context: 'browser', timeoutMs: opts.timeoutMs });
+    markCredentialVerified(conn.provider, conn.store);
+    await recordUsage(buildUsageRecord({
+      provider: request.provider, model: request.model, servedModel: result.servedModel, feature: request.feature,
+      status: 'success', usage: result.usage, messages: request.messages, responseText: result.text,
+      recordedBy: 'client', latencyMs: result.latencyMs,
+    }));
+    return result.text;
   } catch (err) {
-    if (err.name === 'AbortError') throw new AIError('The AI request timed out. Check your connection and try again.');
-    if (err instanceof AIError) throw err;
-    if (err instanceof TypeError) throw new AIError('Network error reaching the AI provider. Check your internet connection.');
-    throw new AIError(err.message || 'Unknown AI error.');
-  } finally {
-    clearTimeout(timeout);
+    const e = toAIError(err, conn.providerInfo);
+    await recordUsage(buildUsageRecord({
+      provider: request.provider, model: request.model, feature: request.feature,
+      status: 'error', errorCode: e.code, recordedBy: 'client', latencyMs: Date.now() - started,
+    }));
+    if (CREDENTIAL_FAILURE_CODES.includes(e.code)) markCredentialFailure(conn.provider, conn.store, e.code);
+    throw e;
   }
 }
 
@@ -140,7 +103,7 @@ export function extractJSON(text) {
     if (match) {
       try { return JSON.parse(match[0]); } catch (e2) { /* fall through */ }
     }
-    throw new AIError('Could not parse the AI response as JSON.');
+    throw new AIError(C.BAD_RESPONSE, 'Could not parse the AI response as JSON.');
   }
 }
 
@@ -172,7 +135,7 @@ export async function generateAIRecipe(profile, requestText) {
 "nutritionPerServing":{"kcal":number,"protein":number,"fat":number,"carbs":number,"fiber":number},
 "estimatedCostMYR":number,"substitutions":[string],"healthBenefits":[string]}`;
   const user = `User profile: ${profileSummary(profile)}.\nRequest: ${requestText || 'Suggest a healthy recipe suited to my profile.'}\nPrefer ingredients available in Malaysia. Keep it realistic and practical.`;
-  const reply = await chatComplete([{ role: 'system', content: sys }, { role: 'user', content: user }], { temperature: 0.8, maxTokens: 1000 });
+  const reply = await chatComplete([{ role: 'system', content: sys }, { role: 'user', content: user }], { temperature: 0.8, maxTokens: 1000, feature: 'recipe' });
   return extractJSON(reply);
 }
 
@@ -186,7 +149,7 @@ export async function generateAIMealPlan(profile, targets) {
 {"meals":[{"slot":"breakfast|lunch|dinner|snack","name":string,"kcal":number,"protein":number,"fat":number,"carbs":number,"fiber":number,"prepTime":number,"difficulty":"Easy|Medium|Hard","servings":number,"ingredients":[string],"instructions":[string]}]}
 Produce exactly ${profile.mealsPerDay || 3} meals whose kcal sum is close to the daily target.`;
   const user = `Profile: ${profileSummary(profile)}.\nDaily calorie target: ${targets.calorieTarget} kcal. Protein target: ${targets.macros.proteinG}g, Fat: ${targets.macros.fatG}g, Carbs: ${targets.macros.carbG}g.\nInclude at least one Malaysian-inspired dish if it fits the diet preference and allergies.`;
-  const reply = await chatComplete([{ role: 'system', content: sys }, { role: 'user', content: user }], { temperature: 0.7, maxTokens: 1400 });
+  const reply = await chatComplete([{ role: 'system', content: sys }, { role: 'user', content: user }], { temperature: 0.7, maxTokens: 1400, feature: 'meal_plan' });
   return extractJSON(reply);
 }
 
@@ -198,5 +161,5 @@ export async function coachReply(userMessage, profile, history = []) {
     ...history.slice(-8).map(m => ({ role: m.role, content: m.content })),
     { role: 'user', content: userMessage },
   ];
-  return chatComplete(messages, { temperature: 0.6, maxTokens: 500 });
+  return chatComplete(messages, { temperature: 0.6, maxTokens: 500, feature: 'coach' });
 }
